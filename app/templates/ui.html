@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>GPU Server - Home</title>
+    <style>
+    :root { --bg:#f5f5f5; --card:#fff; --link:#0078d7; --text:#222; }
+    body{font-family:Arial,Segoe UI,Tahoma,sans-serif;margin:2rem;background:var(--bg);color:var(--text)}
+    h1{margin:0 0 1rem}
+    .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:1.2rem}
+    .card{background:var(--card);padding:1rem 1.2rem;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+    ul{list-style:none;padding:0;margin:0}
+    li{margin:.5rem 0}
+    a{color:var(--link);text-decoration:none}
+    a:hover{text-decoration:underline}
+    label{display:block;margin:.4rem 0 .2rem}
+    input{padding:.5rem .6rem;border:1px solid #ddd;border-radius:6px;width:120px}
+    button{padding:.5rem .8rem;border:0;border-radius:6px;background:var(--link);color:#fff;cursor:pointer}
+    button:hover{background:#005a9e}
+    pre{background:#0f172a;color:#e2e8f0;padding:.75rem;border-radius:8px;overflow:auto;max-height:300px}
+    .muted{opacity:.8;font-size:.9rem}
+    .row{display:flex;gap:.6rem;align-items:center;margin:.4rem 0 .8rem;flex-wrap:wrap}
+    </style>
+</head>
+<body>
+    <h1>🚀 GPU Server - Endpoints</h1>
+
+    <div class="grid">
+    <!-- Endpoints & Docs -->
+    <div class="card">
+        <h3>Endpoints</h3>
+        <ul>
+        <li><a href="/health">/health</a></li>
+        <li><a href="/cuda">/cuda</a></li>
+        <li><a href="/env?pretty=1">/env</a></li>
+        <li><a href="/env/full?pretty=1">/env/full</a></li>
+        <li><a href="/env/system?pretty=1">/env/system</a></li>
+        </ul>
+
+        <h3 style="margin-top:1.2rem">Docs</h3>
+        <div class="row">
+        <a href="/docs" target="_blank"><button>Open Swagger UI</button></a>
+        <a href="/redoc" target="_blank"><button>Open ReDoc</button></a>
+        </div>
+
+        <h3 style="margin-top:1.2rem">Env viewer</h3>
+        <div class="row">
+        <button onclick="loadEnv()">/env</button>
+        <button onclick="loadEnvFull()">/env/full</button>
+        <button onclick="loadEnvSystem()">/env/system</button>
+        <span class="muted">Shows environment data in the box below</span>
+
+        </div>
+        <pre id="envOut">…</pre>
+
+        <h3 style="margin-top:1.2rem">Run Full Test</h3>
+        <div class="row">
+        <button onclick="runTestApi()">Run test_api.py</button>
+        </div>
+        <pre id="testApiOut">…</pre>
+    </div>
+
+    <!-- Quick POST testers -->
+    <div class="card">
+        <h3>Quick Tests (POST)</h3>
+
+        <div style="margin-bottom:1rem">
+        <h4>/matmul</h4>
+        <label for="mmN">n (1..8192)</label>
+        <div class="row">
+            <input id="mmN" type="number" min="1" max="8192" value="2048"/>
+            <button onclick="runMatmul()">Send</button>
+        </div>
+        <pre id="matmulOut">…</pre>
+        </div>
+
+        <div>
+        <h4>/infer</h4>
+        <label for="batch">batch (1..256)</label>
+        <div class="row">
+            <input id="batch" type="number" min="1" max="256" value="8"/>
+            <button onclick="runInfer()">Send</button>
+        </div>
+        <pre id="inferOut">…</pre>
+        </div>
+    </div>
+    </div>
+
+    <script>
+    const j = (o) => JSON.stringify(o, null, 2);
+
+    async function loadEnv(){
+        try{
+        const r = await fetch('/env');
+        const data = await r.json();
+        const summary = {
+            device: data.device,
+            gpu_name: data.gpu_name ?? "CPU",
+            torch: data.torch_version,
+            python: data.python,
+            cuda_available: data.cuda_available
+        };
+        document.getElementById('envOut').textContent = j(summary);
+        }catch(e){
+        document.getElementById('envOut').textContent = String(e);
+        }
+    }
+
+    async function loadEnvFull(){
+        try{
+        const r = await fetch('/env/full');
+        const data = await r.json();
+        document.getElementById('envOut').textContent = j(data);
+        }catch(e){
+        document.getElementById('envOut').textContent = String(e);
+        }
+    }
+
+    async function loadEnvSystem(){
+        try{
+        const r = await fetch('/env/system');
+        const data = await r.json();
+        document.getElementById('envOut').textContent = j(data);
+        }catch(e){
+        document.getElementById('envOut').textContent = String(e);
+        }
+    }
+
+    async function runMatmul(){
+        const n = parseInt(document.getElementById('mmN').value || '1024', 10);
+        const r = await fetch('/matmul', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({n})
+        });
+        document.getElementById('matmulOut').textContent = j(await r.json());
+    }
+
+    async function runInfer(){
+        const batch = parseInt(document.getElementById('batch').value || '4', 10);
+        const r = await fetch('/infer', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({batch})
+        });
+        document.getElementById('inferOut').textContent = j(await r.json());
+    }
+
+    async function runTestApi(){
+        try {
+        const r = await fetch('/run/test-api', { method: 'POST' });
+        const result = await r.json();
+        document.getElementById('testApiOut').textContent = result.success
+            ? result.output
+            : "Error:\n" + result.error;
+        } catch (e) {
+        document.getElementById('testApiOut').textContent = String(e);
+        }
+    }
+
+    // load on first visit
+    loadEnv();
+    </script>
+</body>
+</html>

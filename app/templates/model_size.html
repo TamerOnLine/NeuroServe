@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>MLP Model Size Calculator</title>
+  <style>
+    body{font-family:Segoe UI,Arial,Tahoma,sans-serif;margin:2rem;background:#f6f7fb;color:#222}
+    .card{background:#fff;padding:1rem 1.2rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);max-width:720px;margin:auto}
+    h1{margin:.2rem 0 1rem}
+    label{display:block;margin:.6rem 0 .25rem}
+    input,select{padding:.55rem .6rem;border:1px solid #ddd;border-radius:8px;width:100%}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+    button{margin-top:1rem;padding:.6rem 1rem;border:0;border-radius:8px;background:#0078d7;color:#fff;cursor:pointer}
+    button:hover{background:#005a9e}
+    pre{background:#0f172a;color:#e2e8f0;padding:.8rem;border-radius:10px;overflow:auto;margin-top:1rem}
+    .links{margin:1rem auto;max-width:720px}
+    .links a{color:#0078d7;text-decoration:none;margin-inline-end:1rem}
+    .links a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <div class="links">
+    <a href="/">Home</a>
+    <a href="/ui" target="_blank">Dashboard</a>
+    <a href="/docs" target="_blank">Swagger</a>
+  </div>
+
+  <div class="card">
+    <h1>🧮 MLP Model Size Calculator</h1>
+    <form id="f" onsubmit="return calc(event)">
+      <div class="row">
+        <div>
+          <label for="in_features">in_features</label>
+          <input id="in_features" name="in_features" type="number" min="1" value="512" required>
+        </div>
+        <div>
+          <label for="hidden">hidden</label>
+          <input id="hidden" name="hidden" type="number" min="1" value="1024" required>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="out_features">out_features</label>
+          <input id="out_features" name="out_features" type="number" min="1" value="10" required>
+        </div>
+        <div>
+          <label for="dtype">Precision (dtype)</label>
+          <select id="dtype" name="dtype">
+            <option value="fp32" selected>fp32 (4 bytes)</option>
+            <option value="fp16">fp16 (2 bytes)</option>
+            <option value="bf16">bf16 (2 bytes)</option>
+            <option value="fp64">fp64 (8 bytes)</option>
+          </select>
+        </div>
+      </div>
+
+      <button type="submit">Calculate</button>
+    </form>
+
+    <pre id="out">— No results yet —</pre>
+    <p id="rec" style="margin:.5rem 0 0; font-weight:600;"></p>
+
+  </div>
+
+<script>
+  const fmt = (o) => JSON.stringify(o, null, 2);
+
+  async function calc(e){
+    e.preventDefault();
+    const form = document.getElementById('f');
+    const body = new FormData(form);
+    document.getElementById('out').textContent = "⏳ Calculating...";
+    document.getElementById('rec').textContent = "";
+    try{
+      const r = await fetch('/api/model-size', { method: 'POST', body });
+      const data = await r.json();
+      // Show recommendation clearly
+      document.getElementById('rec').textContent = `Recommendation: ${data.recommendation}`;
+      // Show full JSON details
+      document.getElementById('out').textContent = fmt(data);
+    }catch(err){
+      document.getElementById('out').textContent = String(err);
+    }
+    return false;
+  }
+</script>
+
+</body>
+</html>
