@@ -1,169 +1,174 @@
-# 🚀 gpu_server
+# NeuroServe (GPU/CPU FastAPI Server)
 
-A REST API server built with **FastAPI + PyTorch** for experiments on
-**GPU / CPU**.\
-It automatically runs computations on the GPU (CUDA) if available, or
-falls back to CPU.
+A lightweight REST API server built with **FastAPI** and **PyTorch** that runs the same code on **GPU (CUDA)** when available, and **falls back to CPU** automatically. It ships with a tiny demo model, performance probes, and a simple web UI to exercise endpoints.
 
-------------------------------------------------------------------------
+---
 
-## ✨ Features
+## Highlights
+- ✅ Auto‑selects **GPU or CPU** at runtime (configurable via `.env`).
+- ✅ Clean **FastAPI** endpoints with Swagger UI (`/docs`) and ReDoc (`/redoc`).
+- ✅ Built‑in **control panel** (`/ui`) and a **model size calculator** (`/tools/model-size`).
+- ✅ Example **TinyNet** model + inference & matmul benchmarks.
+- ✅ Works on Windows/Linux/macOS (CPU), NVIDIA CUDA on Windows/Linux.
 
--   ✅ Supports **GPU (CUDA)** or **CPU** with the same code.
--   ✅ API powered by **FastAPI** with auto docs at `/docs`.
--   ✅ Matrix multiplication benchmark endpoint.
--   ✅ TinyNet demo model for inference tests.
--   ✅ Configurable via `.env` file.
+---
 
-------------------------------------------------------------------------
+## Project Structure (key files)
+```
+app/
+  main.py           # FastAPI app & endpoints
+  runtime.py        # device picking, CUDA info, warmup
+  toy_model.py      # TinyNet demo model
+  templates/
+    index.html      # quick links
+    ui.html         # control panel
+    model_size.html # model size calculator
+scripts/
+  install_torch.py  # cross‑platform PyTorch installer (GPU/CPU)
+  test_api.py       # quick client to hit endpoints
+requirements.txt
+README.md
+```
 
-## 📂 Project Structure
+---
 
-    gpu-server/
-    ├─ app/
-    │  ├─ __init__.py
-    │  ├─ main.py
-    │  ├─ runtime.py
-    │  └─ toy_model.py
-    ├─ scripts/
-    │  ├─ install_torch_auto.py
-    │  └─ test_api.py
-    ├─ tests/
-    │  └─ test_endpoints.py        
-    ├─ requirements.txt            
-    ├─ requirements.lock.txt       
-    ├─ .env.example
-    ├─ .gitignore
-    └─ README.md
+## Requirements
+- **Python 3.12+** (recommended)
+- **Windows or Linux** (GPU or CPU) / **macOS** (CPU/MPS)
+- **NVIDIA driver** for CUDA (optional – only if you want GPU)
 
+> Tip (Windows): If you ever need to build packages from source, install **Visual Studio 2022 Build Tools** (MSVC, CMake, Ninja). Not required for normal use when PyTorch wheels are available.
 
-------------------------------------------------------------------------
+---
 
-## ⚙️ Requirements
+## Quickstart
 
--   Python **3.12+**
--   NVIDIA Driver (optional for GPU)
--   CUDA Toolkit (optional for development)
-
-------------------------------------------------------------------------
-
-## 🛠️ Installation
-
-### 1) Create virtual environment
-
-``` powershell
+### 1) Create a virtual environment
+**Windows (PowerShell)**
+```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 2) Install base dependencies
+**Linux/macOS**
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
 
-``` powershell
+### 2) Install base dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-### 3) Install correct PyTorch (GPU or CPU)
-
-``` powershell
-python install_torch_auto.py
+### 3) Install the right PyTorch (GPU if available, otherwise CPU)
+```bash
+python -m scripts.install_torch
 ```
+> The script auto‑detects your platform (NVIDIA, ROCm, macOS/CPU) and installs appropriate wheels.
 
-> 🔹 The script checks your system and installs the right wheel: -
-> `torch+cu124` if a compatible GPU is found. - `torch+cpu` if no GPU is
-> available.
-
-------------------------------------------------------------------------
-
-## ⚡ Running the server
-
-### 1) With Uvicorn CLI
-
-``` powershell
+### 4) Run the server
+**Option A – Uvicorn**
+```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-### 2) With Python directly
-
-``` powershell
-python app/main.py
+**Option B – Python**
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-------------------------------------------------------------------------
+Open:
+- Swagger: http://localhost:8000/docs
+- Control Panel: http://localhost:8000/ui
 
-## ⚙️ Environment Variables
+---
 
-Create a `.env` file in the project root:
-
-``` ini
-# Run on GPU (if available)
+## Configuration (.env)
+Create a `.env` file in the project root to control device & warmup:
+```ini
+# Prefer the first CUDA GPU if available; otherwise CPU will be used
 DEVICE=cuda:0
 
-# Or force CPU mode
+# Force CPU mode (uncomment to override)
 # DEVICE=cpu
 
-# Matrix warmup size (optional)
+# Size used by warmup matmul (int)
 WARMUP_MATMUL_SIZE=1024
 ```
 
-------------------------------------------------------------------------
+---
 
-## 📡 API Endpoints
+## API Endpoints
+| Method | Path              | Description                              |
+|-------:|-------------------|------------------------------------------|
+| GET    | `/health`         | Health check                             |
+| GET    | `/cuda`           | PyTorch/CUDA/device info                 |
+| GET    | `/env`            | Short environment summary (add `?pretty=1`) |
+| GET    | `/env/full`       | Extended env + GPU list (add `?pretty=1`) |
+| GET    | `/env/system`     | OS/CPU/RAM info (add `?pretty=1`)        |
+| POST   | `/matmul`         | Matrix multiply benchmark `{n:int}`      |
+| POST   | `/infer`          | TinyNet inference `{batch:int}`          |
+| POST   | `/run/test-api`   | Runs `scripts/test_api.py` and returns stdout |
+| GET    | `/`               | Home with quick links                    |
+| GET    | `/ui`             | Control panel (interactive)              |
+| GET    | `/tools/model-size` | MLP model size calculator               |
 
--   ✅ **GET** `/health` → Server health check\
--   ✅ **GET** `/cuda` → PyTorch + CUDA + device info\
--   ✅ **POST** `/matmul` → Run matrix multiplication on device\
--   ✅ **POST** `/infer` → Run TinyNet inference
-
-------------------------------------------------------------------------
-
-## 🔍 Testing
-
-### With browser
-
-Visit:
-
-    http://localhost:8000/docs
-
-to try all endpoints interactively.
-
-### With Python (`test_api.py`)
-
-``` python
-import requests
-
-BASE_URL = "http://localhost:8000"
-
-print(requests.get(f"{BASE_URL}/health").json())
-print(requests.get(f"{BASE_URL}/cuda").json())
-print(requests.post(f"{BASE_URL}/matmul", json={"n": 2048}).json())
-print(requests.post(f"{BASE_URL}/infer", json={"batch": 16}).json())
+### Request examples
+**Matrix multiply**
+```bash
+curl -X POST http://localhost:8000/matmul \\
+  -H "Content-Type: application/json" \\
+  -d '{"n": 2048}'
 ```
 
-------------------------------------------------------------------------
-
-## 📊 Example Output
-
-``` json
-{
-  "torch_version": "2.6.0+cu124",
-  "torch_cuda_version": "12.4",
-  "cuda_available": true,
-  "device": "cuda:0",
-  "gpu_name": "NVIDIA GeForce RTX 3080",
-  "total_memory_gb": 10.0
-}
+**Inference**
+```bash
+curl -X POST http://localhost:8000/infer \\
+  -H "Content-Type: application/json" \\
+  -d '{"batch": 16}'
 ```
 
-------------------------------------------------------------------------
+**PowerShell (Invoke-RestMethod)**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/matmul" -Method POST -Body '{"n": 1024}' -ContentType "application/json"
+```
 
-## 🚀 Roadmap
+---
 
--   [ ] Add support for real PyTorch models (ResNet, LLaMA, BERT).
--   [ ] File upload endpoint (images/text) for inference.
--   [ ] Docker + NVIDIA Container Toolkit support.
+## Control Panel (UI)
+Open **`/ui`** to:
+- View current **device**, **CUDA**, and **Python** info.
+- Run **matmul** and **inference** interactively.
+- Trigger the **test API** client and read its output in the page.
 
-------------------------------------------------------------------------
+There’s also a **Model Size Calculator** at **`/tools/model-size`** that estimates parameter count and memory footprint for a simple MLP and suggests whether CPU or GPU is recommended.
 
-## 📜 License
+---
 
+## Tiny client: `scripts/test_api.py`
+A minimal Python client that calls all core endpoints. Run it while the server is up:
+```bash
+python -m scripts.test_api
+```
+Expected output includes JSON from `/health`, `/cuda`, `/matmul`, and `/infer`.
+
+---
+
+## Troubleshooting
+- **Torch import error or missing wheels** → Use **Python 3.12** in your venv and rerun the installer: `python -m scripts.install_torch`.
+- **No GPU detected** → The server will safely use CPU. To force CPU explicitly: `DEVICE=cpu` in `.env`.
+- **Windows**: If you hit build errors (rare), install **VS 2022 Build Tools** and ensure you’re on official PyTorch wheels.
+- **CUDA mismatch**: If `nvidia-smi` shows a much newer driver than your installed torch+cuXX, reinstall torch for a matching CUDA runtime.
+
+---
+
+## Roadmap
+- [ ] Real models: ResNet/BERT/LLaMA loaders & sample inputs.
+- [ ] File upload endpoints (images/text) with pre/post‑processing.
+- [ ] Docker images (CPU & NVIDIA CUDA) + `docker-compose`.
+- [ ] Pre‑commit hooks (ruff/black) & GitHub Actions CI.
+
+---
+
+## License
 MIT © TamerOnLine
