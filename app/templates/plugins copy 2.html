@@ -393,12 +393,7 @@ function saveResponse(name, btn){
   const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
   const filename = `${name}-qa-${stamp}.json`;
 
-  const ordered = Object.keys(combined).sort().reduce((obj,k)=>{obj[k]=combined[k];return obj;},{});
-  const blob = new Blob([JSON.stringify(ordered, null, 2)], {type:"application/json"});
-
-  
-  
-  
+  const blob = new Blob([JSON.stringify(combined,null,2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;

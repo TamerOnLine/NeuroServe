@@ -26,10 +26,16 @@ from fastapi.staticfiles import StaticFiles
 from app.routes.uploads import router as uploads_router
 
 
+from fastapi.encoders import jsonable_encoder
+
+
+
 
 load_dotenv()  # Read .env file if it exists
 
 app = FastAPI(title="gpu_server", version="0.1.0")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 app.include_router(uploads_router)
 
 # Global model and device
@@ -115,6 +121,48 @@ def infer(req: InferReq):
         "elapsed_sec": round(time.time() - t0, 4),
     }
 
+# --- JSON sanitization helpers ---
+def _to_jsonable(obj):
+    try:
+        import numpy as np
+        import torch
+    except Exception:
+        np = None
+        torch = None
+
+    if obj is None:
+        return None
+    # numpy scalars
+    if np is not None and isinstance(obj, (np.generic,)):
+        return obj.item()
+    # numpy arrays
+    if np is not None and hasattr(obj, "dtype") and hasattr(obj, "shape"):
+        try:
+            return obj.tolist()
+        except Exception:
+            return str(obj)
+    # torch tensors
+    if torch is not None and hasattr(obj, "detach") and hasattr(obj, "cpu"):
+        try:
+            return obj.detach().cpu().tolist()
+        except Exception:
+            return str(obj)
+    # dict / list / tuple / set
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        t = type(obj)
+        return t(_to_jsonable(v) for v in obj)
+    # plain types
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    # fallback
+    try:
+        return str(obj)
+    except Exception:
+        return None
+
+
 
 @app.get("/env")
 def env(request: Request, pretty: bool = False):
@@ -190,6 +238,7 @@ def run_test_api():
 
 
 
+
 @app.post("/inference")
 async def generic_inference(payload: dict):
     provider = str(payload.get("provider", "")).strip()
@@ -200,17 +249,27 @@ async def generic_inference(payload: dict):
         raise HTTPException(404, f"Provider '{provider}' not found")
 
     try:
-        out = plugin.infer(payload)                 # قد يكون dict أو coroutine
-        if hasattr(out, "__await__"):               # 👈 بديل inspect
+        out = plugin.infer(payload)
+        if hasattr(out, "__await__"):  # coroutine
             out = await out
         if not isinstance(out, dict):
             out = {"result": out}
-        return {"provider": provider, **out}
+
+        data = {"provider": provider, **out}
+
+        # 👇 التعقيم هنا
+        safe = _to_jsonable(data)
+
+        # بإمكانك الآن إرجاعها مباشرة بدون jsonable_encoder
+        return JSONResponse(content=safe)
+
     except HTTPException:
         raise
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(500, f"{type(e).__name__}: {e}")
+
+
 
 
 

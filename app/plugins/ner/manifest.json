@@ -1,37 +1,8 @@
 {
   "provider": "ner",
-  "title": "Named Entity Recognition",
-  "description": "استخراج الكيانات المسماة من نص (أشخاص، منظمات، أماكن...)",
-  "default_model": "dslim/bert-base-NER",
-  "tasks": ["extract-entities"],
-  "examples": [
-    {
-      "label": "استخراج كيانات (EN)",
-      "payload": {
-        "provider": "ner",
-        "task": "extract-entities",
-        "text": "Barack Obama was born in Hawaii and served as the 44th President of the United States.",
-        "aggregation": "simple"
-      }
-    },
-    {
-      "label": "Aggregation=none (مخرجات توكنات مفصّلة)",
-      "payload": {
-        "provider": "ner",
-        "task": "extract-entities",
-        "text": "Apple Inc. is headquartered in Cupertino, California.",
-        "aggregation": "none"
-      }
-    },
-    {
-      "label": "نموذج بديل (متعدد اللغات)",
-      "payload": {
-        "provider": "ner",
-        "task": "extract-entities",
-        "text": "Berlin ist die Hauptstadt von Deutschland.",
-        "aggregation": "simple",
-        "model_override": "Davlan/xlm-roberta-base-ner-hrl"
-      }
-    }
-  ]
+  "task": "extract-entities",
+  "text": "Barack Obama was born in Hawaii and served as the 44th President of the United States.",
+  "aggregation": "simple",
+  "device": "cuda:0",
+  "model": "dslim/bert-base-NER"
 }

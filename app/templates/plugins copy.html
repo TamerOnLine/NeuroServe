@@ -171,10 +171,6 @@ function cardHTML(p, manifest){
     </div>
 
     <label>Response</label>
-    <div class="row" style="margin:.4rem 0">
-      <button class="ghost" onclick="copyResponse('${p.name}', this)">Copy</button>
-      <button class="ghost" onclick="saveResponse('${p.name}', this)">Save Q+A</button>
-    </div>
     <pre id="${id}_res">—</pre>
   </div>`;
 }
@@ -296,6 +292,7 @@ async function render(){
     if (!wrap) return;
     wrap.appendChild(defaultPill(p.name));
     if (PRESETS[p.name]) PRESETS[p.name].forEach(pr => wrap.appendChild(pill(p.name, pr)));
+    // validate initial JSON state
     const ta = document.getElementById(`prov_${p.name}_req`);
     if (ta) validateJSON(ta);
   });
@@ -345,70 +342,6 @@ async function send(name){
     out.textContent = String(e);
   }
 }
-
-/* ---------------- New: Copy & Save Q+A ---------------- */
-
-async function copyResponse(name, btn){
-  const el = document.getElementById(`prov_${name}_res`);
-  const text = (el && el.textContent) ? el.textContent : '';
-  if (!text.trim()){ setBtnFlash(btn,"No result","err"); return; }
-  try {
-    await navigator.clipboard.writeText(text);
-    setBtnFlash(btn,"Copied ✓","ok");
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed'; ta.style.left = '-9999px';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); setBtnFlash(btn,"Copied ✓","ok"); }
-    catch(_) { setBtnFlash(btn,"Copy failed","err"); }
-    finally { document.body.removeChild(ta); }
-  }
-}
-
-function saveResponse(name, btn){
-  const id = `prov_${name}`;
-  const reqEl = document.getElementById(`${id}_req`);
-  const resEl = document.getElementById(`${id}_res`);
-  const taskEl = document.getElementById(`${id}_task`);
-
-  const reqText = reqEl ? reqEl.value : "";
-  const resText = resEl ? resEl.textContent : "";
-
-  if (!resText.trim()){ setBtnFlash(btn,"No result","err"); return; }
-
-  let combined;
-  try {
-    combined = {
-      request: JSON.parse(reqText || "{}"),
-      task: taskEl ? taskEl.value : "",
-      response: JSON.parse(resText || "{}")
-    };
-  } catch {
-    combined = { request: reqText, response: resText };
-  }
-
-  const ts = new Date();
-  const pad = (n)=>String(n).padStart(2,'0');
-  const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
-  const filename = `${name}-qa-${stamp}.json`;
-
-  const ordered = Object.keys(combined).sort().reduce((obj,k)=>{obj[k]=combined[k];return obj;},{});
-  const blob = new Blob([JSON.stringify(ordered, null, 2)], {type:"application/json"});
-
-  
-  
-  
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  setBtnFlash(btn,"Saved ✓","ok");
-}
-/* ------------------------------------------------------ */
 
 render();
 </script>
