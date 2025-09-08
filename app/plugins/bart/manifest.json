@@ -1,0 +1,10 @@
+{
+  "title": "BART Summarizer",
+  "tasks": ["summarize"],
+  "input": {
+    "text": "string (required, up to ~3-4k chars works best)",
+    "max_length": "int (default 180)",
+    "min_length": "int (default 60)",
+    "do_sample": "bool (default false)"
+  }
+}

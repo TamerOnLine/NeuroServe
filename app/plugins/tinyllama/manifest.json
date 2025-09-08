@@ -1,0 +1,10 @@
+{
+  "title": "TinyLlama Text Generator",
+  "tasks": ["text-generation"],
+  "input": {
+    "prompt": "string (required)",
+    "max_new_tokens": "int (default 64)",
+    "temperature": "float (default 0.7)",
+    "top_p": "float (default 0.9)"
+  }
+}

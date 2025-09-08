@@ -1,0 +1,5 @@
+{
+  "title": "TinyNet Demo",
+  "tasks": ["infer"],
+  "input": {"batch": "int (1..256)", "in_features": 512}
+}

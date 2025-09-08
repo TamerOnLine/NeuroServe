@@ -17,6 +17,10 @@ from pydantic import BaseModel, Field
 from .runtime import cuda_info, warmup, pick_device
 from .toy_model import load_model
 
+from fastapi import UploadFile, File, HTTPException
+from .plugins.loader import discover, get, all_meta
+
+
 load_dotenv()  # Read .env file if it exists
 
 app = FastAPI(title="gpu_server", version="0.1.0")
@@ -159,6 +163,41 @@ def run_test_api():
         return {"success": True, "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "error": e.stderr}
+    
+
+@app.on_event("startup")
+def _startup():
+    global MODEL, DEVICE
+    DEVICE = pick_device()
+    MODEL, _ = load_model()  # TinyNet القديم يبقى كما هو (اختياري)  
+    warmup_result = warmup()
+    discover(reload=True)    # ← تحميل جميع الـ plugins عند البدء
+    print("[gpu_server] Warmup:", warmup_result)
+
+
+@app.get("/plugins")
+def list_plugins():
+    """قائمة المزوّدين المتاحين (من المجلد plugins/*)."""
+    return {"providers": list(all_meta().values())}
+
+@app.post("/inference")
+def generic_inference(payload: dict):
+    """
+    استدعاء عام لأي نموذج.
+    يتوقع payload يحوي على الأقل: {"provider": "<folder>", "task": "...", ...}
+    """
+    provider = str(payload.get("provider", "")).strip()
+    if not provider:
+        raise HTTPException(400, "Missing 'provider'")
+    plugin = get(provider)
+    if not plugin:
+        raise HTTPException(404, f"Provider '{provider}' not found")
+    try:
+        out = plugin.infer(payload)
+        return {"provider": provider, **out}
+    except Exception as e:
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
+
 
 
 
@@ -213,3 +252,8 @@ def api_model_size(
         "recommendation": recommendation,
     }
     return JSONResponse(data)
+
+
+@app.get("/plugins/ui", response_class=HTMLResponse)
+def plugins_console(request: Request):
+    return templates.TemplateResponse("plugins.html", {"request": request})

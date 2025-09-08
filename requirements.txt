@@ -6,6 +6,13 @@ python-dotenv
 requests
 psutil
 python-multipart
+torchvision
+Pillow
+transformers
+torch
+sentencepiece
+protobuf==3.20.*
+torchaudio
 
 
 

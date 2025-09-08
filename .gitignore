@@ -173,3 +173,10 @@ Thumbs.db
 
 # Generated env info 
 env-info.txt
+
+# Local cache from the app
+.cache/
+
+# Local model cache
+models_cache/
+

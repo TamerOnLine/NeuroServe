@@ -1,0 +1,5 @@
+{
+  "provider": "distilbert",
+  "task": "text-classify",
+  "text": "hello"
+}

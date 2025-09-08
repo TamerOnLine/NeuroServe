@@ -1,0 +1,5 @@
+{
+  "title": "ResNet18 Image Classifier",
+  "tasks": ["classify"],
+  "input": {"image_url": "string (http/https)", "topk": "int (default 5)"}
+}

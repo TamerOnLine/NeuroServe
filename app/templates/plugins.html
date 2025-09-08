@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Plugins Console</title>
+  <style>
+    :root { --bg:#f5f7fb; --card:#fff; --link:#0a66ff; --text:#111; }
+    body{font-family:Segoe UI,Arial,Tahoma,sans-serif;margin:2rem;background:var(--bg);color:var(--text)}
+    h1{margin:0 0 1rem}
+    .muted{opacity:.8}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1rem}
+    .card{background:var(--card);border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);padding:1rem}
+    .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    button{padding:.5rem .8rem;border:0;border-radius:8px;background:var(--link);color:#fff;cursor:pointer}
+    button.secondary{background:#e9eefb;color:#133087}
+    button:hover{filter:brightness(.95)}
+    textarea, input{width:100%;padding:.55rem .6rem;border:1px solid #d9d9e3;border-radius:8px;font-family:ui-monospace,Consolas,monospace}
+    textarea{min-height:140px}
+    pre{background:#0f172a;color:#e2e8f0;padding:.75rem;border-radius:10px;overflow:auto;max-height:260px}
+    .badge{display:inline-block;background:#eef3ff;border:1px solid #cfe0ff;color:#133087;border-radius:9999px;padding:.1rem .5rem;font-size:.8rem;margin-right:.25rem}
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+    a{color:var(--link);text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>🧩 Plugins Console</h1>
+    <div class="row">
+      <button class="secondary" onclick="reloadProviders()">↻ Reload providers</button>
+      <a href="/" class="secondary"><button class="secondary">← Home</button></a>
+    </div>
+  </div>
+  <p class="muted">تكتشف هذه الصفحة جميع النماذج داخل <code>app/plugins/*</code> وتسمح بإرسال طلب موحّد إلى <code>/inference</code> لكل نموذج.</p>
+
+  <div id="cards" class="grid"></div>
+
+<script>
+const fmt = (o) => JSON.stringify(o, null, 2);
+
+async function fetchProviders(){
+  const r = await fetch('/plugins');
+  const { providers } = await r.json();
+  return providers || [];
+}
+
+function makeExamplePayload(p){
+  // محاولة إعداد مثال تلقائي بناء على manifest
+  const task = (p.tasks && p.tasks[0]) || "infer";
+  const base = { provider: p.name, task };
+  // أشهر الحقول المعروفة:
+  if (p.name.includes("resnet") || (p.input && p.input.image_url)){
+    base.image_url = "https://images.unsplash.com/photo-1518791841217-8f162f1e1131";
+    base.topk = 5;
+  } else if (p.name.includes("tinynet") || (p.input && p.input.batch)){
+    base.batch = 8;
+  } else {
+    base.input = "hello";
+  }
+  return base;
+}
+
+function cardHTML(p){
+  const id = `prov_${p.name}`;
+  const example = makeExamplePayload(p);
+  return `
+    <div class="card" id="${id}">
+      <h3 style="margin:.2rem 0 .4rem">${p.title || p.name}</h3>
+      <div style="margin:.3rem 0 .6rem">
+        <span class="badge">${p.name}</span>
+        ${(p.tasks||[]).map(t=>`<span class="badge">${t}</span>`).join('')}
+      </div>
+      <label>Request JSON</label>
+      <textarea id="${id}_req">${fmt(example)}</textarea>
+      <div class="row" style="margin:.6rem 0">
+        <button onclick="send('${id}','${p.name}')">Send</button>
+        <button class="secondary" onclick="pretty('${id}_req')">Pretty</button>
+      </div>
+      <label>Response</label>
+      <pre id="${id}_res">—</pre>
+    </div>
+  `;
+}
+
+function pretty(elId){
+  try{
+    const ta = document.getElementById(elId);
+    ta.value = fmt(JSON.parse(ta.value));
+  }catch(e){}
+}
+
+async function send(cardId, provider){
+  const ta = document.getElementById(cardId+'_req');
+  const out = document.getElementById(cardId+'_res');
+  out.textContent = "⏳ Sending…";
+  try{
+    const payload = JSON.parse(ta.value);
+    const r = await fetch('/inference', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+    out.textContent = fmt(data);
+  }catch(e){
+    out.textContent = String(e);
+  }
+}
+
+async function render(){
+  const list = await fetchProviders();
+  const html = list.map(cardHTML).join('');
+  document.getElementById('cards').innerHTML = html || '<p>لا يوجد أي Plug-ins مُكتشَفة.</p>';
+}
+
+async function reloadProviders(){
+  // لو كنت ضفت endpoint /plugins/refresh في الباك إند يمكن تستدعيه هنا
+  try{ await fetch('/plugins'); }catch(e){}
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
