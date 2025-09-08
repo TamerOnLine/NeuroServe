@@ -24,12 +24,17 @@ from .plugins.loader import discover, get, all_meta
 from fastapi.staticfiles import StaticFiles
 import os
 
+from fastapi.staticfiles import StaticFiles
+#from app.plugins import discover_plugins
+
+from app.routes.uploads import router as uploads_router
 
 
 
 load_dotenv()  # Read .env file if it exists
 
 app = FastAPI(title="gpu_server", version="0.1.0")
+app.include_router(uploads_router)
 
 # Global model and device
 MODEL = None
@@ -37,6 +42,14 @@ DEVICE = None
 
 plugins_dir = os.path.join(os.path.dirname(__file__), "plugins")
 app.mount("/plugins-data", StaticFiles(directory=plugins_dir), name="plugins-data")
+
+@app.get("/plugins")
+def list_plugins():
+    """قائمة المزودين المتاحين (من المجلد plugins/*)."""
+    meta = all_meta()            # dict: name -> manifest/meta
+    names = list(meta.keys())    # ['bart','clip','resnet18','tinyllama', ...]
+    return {"plugins": names, "meta": meta}
+
 
 
 @app.on_event("startup")
