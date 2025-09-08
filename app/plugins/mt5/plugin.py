@@ -7,7 +7,7 @@ import torch
 from transformers import AutoTokenizer, MT5ForConditionalGeneration
 
 from app.plugins.base import AIPlugin
-from app.runtime import pick_device
+from app.runtime import pick_device, pick_dtype
 
 # خرائط أسماء اللغات الشائعة ↔︎ الصياغة التي يفهمها mT5 في الـprefix
 _LANG_ALIASES = {
@@ -26,17 +26,13 @@ def _norm_lang(name: str, default: str) -> str:
 
 
 def _soft_chunks(text: str, approx_len: int = 400) -> List[str]:
-    """
-    تجزئة لطيفة على حدود المسافات لتفادي قصّ قاسٍ عند max_length.
-    الهدف: تقليل خطر تجاوز 512 توكن بعد إضافة الـprefix.
-    """
     words = text.split()
     if not words:
         return []
     chunks, cur = [], []
     cur_len = 0
     for w in words:
-        wlen = len(w) + (1 if cur else 0)  # +1 للمسافة
+        wlen = len(w) + (1 if cur else 0)
         if cur_len + wlen > approx_len and cur:
             chunks.append(" ".join(cur))
             cur = [w]
@@ -54,27 +50,21 @@ class Plugin(AIPlugin):
 
     def load(self) -> None:
         self.dev = pick_device()
-        self.model_name = "google/mt5-small"   # خفيف ومتعدد اللغات
+        self.model_name = "google/mt5-small"
 
         # ✅ أوقف تحذير fast tokenizer/legacy
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=False)
 
-        # ✅ FP16 على CUDA اختياري (ثبات أعلى مع FP32 عادةً)
-        use_fp16 = (getattr(self.dev, "type", "") == "cuda")
-        dtype = torch.float16 if use_fp16 else torch.float32
-
-        # ✅ استخدم dtype بدل torch_dtype (القديم مُهمل)
+        # ✅ استخدم dtype الحديث + اختيار تلقائي يناسب الجهاز
         self.model = MT5ForConditionalGeneration.from_pretrained(
             self.model_name,
             low_cpu_mem_usage=True,
-            dtype=dtype
+            dtype=pick_dtype(str(self.dev))
         ).to(self.dev)
 
-        # pad_token احتياط
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # warmup خفيف
         try:
             _ = self._translate_once("hello", "english", "arabic",
                                      max_new=16, do_sample=False, num_beams=4)
@@ -94,10 +84,6 @@ class Plugin(AIPlugin):
         temperature: float | None = None,
         top_p: float | None = None,
     ) -> str:
-        """
-        ترجمة قطعة نصية واحدة باستخدام صياغة mT5 القياسية:
-        "translate <src> to <tgt>: <text>"
-        """
         prefix = f"translate {src} to {tgt}: "
         enc = self.tokenizer(
             prefix + text,
@@ -106,7 +92,7 @@ class Plugin(AIPlugin):
             max_length=512,
         )
 
-        # ✅ انقل للـdevice، وحوّل dtype فقط للتنسورات العائمة
+        # انقل للـdevice، وحوّل dtype فقط للتنسورات العائمة
         enc = {
             k: (
                 v.to(self.dev, dtype=self.model.dtype) if (torch.is_tensor(v) and v.is_floating_point())
@@ -137,20 +123,6 @@ class Plugin(AIPlugin):
         return self.tokenizer.decode(out_ids[0], skip_special_tokens=True)
 
     def infer(self, payload: dict) -> dict:
-        """
-        يقبل:
-        - text أو input: نص واحد طويل
-        - source_lang / target_lang: أسماء أو رموز شائعة (ar, en, de, ...)
-
-        خيارات:
-        - max_new_tokens (افتراضي 128)
-        - do_sample (افتراضي False)
-        - num_beams (افتراضي 4 عند do_sample=False)
-        - temperature (افتراضي 0.7 عند do_sample=True)
-        - top_p (افتراضي 0.9 عند do_sample=True)
-        - chunking (افتراضي True): تجزئة ناعمة للنصوص الطويلة
-        - chunk_len (افتراضي 400): طول تقريبي لكل جزء قبل الترجمة
-        """
         text = (payload.get("text") or payload.get("input") or "").strip()
         if not text:
             return {"task": "translate", "error": "text is required"}
@@ -166,11 +138,9 @@ class Plugin(AIPlugin):
         do_sample = bool(payload.get("do_sample", False))
         num_beams = int(payload.get("num_beams", 4))
 
-        # Sampling params (تُستخدم فقط إذا do_sample=True)
         temperature = float(payload.get("temperature", 0.7))
         top_p = float(payload.get("top_p", 0.9))
 
-        # تجزئة اختيارية للنص الطويل
         use_chunking = bool(payload.get("chunking", True))
         chunk_len = int(payload.get("chunk_len", 400))
         parts = _soft_chunks(text, chunk_len) if use_chunking else [text]

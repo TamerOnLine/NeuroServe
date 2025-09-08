@@ -8,15 +8,11 @@ import numpy as np
 import torch
 import torchaudio
 
-# جرّب استخدام backend soundfile لو متوفر
-try:
-    torchaudio.set_audio_backend("soundfile")
-except Exception:
-    pass
+# ملاحظة: set_audio_backend متوقّفة في torchaudio → لا داعي لاستدعائها
 
 from transformers import AutoProcessor, WhisperForConditionalGeneration
 from app.plugins.base import AIPlugin
-from app.runtime import pick_device
+from app.runtime import pick_device, pick_dtype
 
 
 class Plugin(AIPlugin):
@@ -27,21 +23,25 @@ class Plugin(AIPlugin):
         self.model_name = "openai/whisper-small"  # غيّر الحجم حسب حاجتك
         self.processor = AutoProcessor.from_pretrained(self.model_name)
 
-        # استخدم dtype الحديث بدل torch_dtype
-        use_fp16 = getattr(self.dev, "type", "") == "cuda"
-        dtype = torch.float16 if use_fp16 else torch.float32
+        # استخدم dtype الحديث واختره تلقائيًا حسب الجهاز
+        dtype = pick_dtype(str(self.dev))
         self.model = WhisperForConditionalGeneration.from_pretrained(
             self.model_name,
             low_cpu_mem_usage=True,
             dtype=dtype,
         ).to(self.dev).eval()
 
-        # warmup خفيف مع توحيد dtype للمدخلات
+        # warmup خفيف مع توحيد dtype للمدخلات العائمة فقط
         try:
             dummy = np.zeros(16000, dtype=np.float32)  # 1s صامت @16kHz
             inputs = self.processor(audio=dummy, sampling_rate=16000, return_tensors="pt")
-            inputs = {k: (v.to(self.dev, dtype=self.model.dtype) if torch.is_tensor(v) else v)
-                      for k, v in inputs.items()}
+            inputs = {
+                k: (
+                    v.to(self.dev, dtype=self.model.dtype) if (torch.is_tensor(v) and v.is_floating_point())
+                    else (v.to(self.dev) if torch.is_tensor(v) else v)
+                )
+                for k, v in inputs.items()
+            }
             _ = self.model.generate(**inputs, max_new_tokens=1)
         except Exception as e:
             print("[plugin][whisper] warmup warn:", e)
@@ -136,10 +136,15 @@ class Plugin(AIPlugin):
             # قراءة الصوت → 16kHz مونو
             mono, sr = self._load_audio_16k_mono(audio_path)
 
-            # تجهيز المدخلات وتوحيد dtype مع الموديل
+            # تجهيز المدخلات وتوحيد dtype مع الموديل (فقط للتنسورات العائمة)
             inputs = self.processor(audio=mono.numpy(), sampling_rate=sr, return_tensors="pt")
-            inputs = {k: (v.to(self.dev, dtype=self.model.dtype) if torch.is_tensor(v) else v)
-                      for k, v in inputs.items()}
+            inputs = {
+                k: (
+                    v.to(self.dev, dtype=self.model.dtype) if (torch.is_tensor(v) and v.is_floating_point())
+                    else (v.to(self.dev) if torch.is_tensor(v) else v)
+                )
+                for k, v in inputs.items()
+            }
 
             # ضبط max_new_tokens لتفادي تجاوز max_target_positions
             limit = getattr(self.model.config, "max_target_positions", 448)

@@ -2,7 +2,7 @@ from __future__ import annotations
 import time, torch, traceback
 from transformers import AutoTokenizer, BartForConditionalGeneration
 from app.plugins.base import AIPlugin
-from app.runtime import pick_device
+from app.runtime import pick_device, pick_dtype
 
 class Plugin(AIPlugin):
     tasks = ["summarize"]
@@ -11,12 +11,14 @@ class Plugin(AIPlugin):
         self.dev = pick_device()
         self.model_name = "facebook/bart-large-cnn"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+
         # حمّل على CPU ثم انقل للجهاز
         self.model = BartForConditionalGeneration.from_pretrained(
             self.model_name,
             low_cpu_mem_usage=True,
-            torch_dtype=torch.float16 if self.dev.type == "cuda" else torch.float32
+            dtype=pick_dtype(str(self.dev))   # ← استبدال torch_dtype بـ dtype
         ).to(self.dev)
+
         # warmup خفيف لتسريع أول نداء
         try:
             _ = self._generate("Hello world.", max_length=30, min_length=5, do_sample=False)
@@ -59,7 +61,6 @@ class Plugin(AIPlugin):
             summary = self._generate(text, max_length, min_length, do_sample)
             if self.dev.type == "cuda": torch.cuda.synchronize()
 
-            # تحذير بسيط إن القص قد حصل لو النص طويل جدًا
             truncated = len(self.tokenizer.encode(text)) > 1024
 
             return {
