@@ -200,24 +200,27 @@ def list_plugins():
 
 
 @app.post("/inference")
-def generic_inference(payload: dict):
-    """
-    استدعاء عام لأي نموذج.
-    يتوقع payload يحوي على الأقل: {"provider": "<folder>", "task": "...", ...}
-    """
+async def generic_inference(payload: dict):
     provider = str(payload.get("provider", "")).strip()
     if not provider:
         raise HTTPException(400, "Missing 'provider'")
     plugin = get(provider)
     if not plugin:
         raise HTTPException(404, f"Provider '{provider}' not found")
+
     try:
-        out = plugin.infer(payload)
-        return {"provider": provider, **(out if isinstance(out, dict) else {"result": out})}
+        out = plugin.infer(payload)                 # قد يكون dict أو coroutine
+        if hasattr(out, "__await__"):               # 👈 بديل inspect
+            out = await out
+        if not isinstance(out, dict):
+            out = {"result": out}
+        return {"provider": provider, **out}
     except HTTPException:
         raise
     except Exception as e:
+        import traceback; traceback.print_exc()
         raise HTTPException(500, f"{type(e).__name__}: {e}")
+
 
 
 # Template rendering (resolve path robustly)
