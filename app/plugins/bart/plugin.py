@@ -11,12 +11,15 @@ class Plugin(AIPlugin):
         self.dev = pick_device()
         self.model_name = "facebook/bart-large-cnn"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        # احتياط: تأكد من وجود pad_token
+        if self.tokenizer.pad_token_id is None and self.tokenizer.eos_token_id is not None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # حمّل على CPU ثم انقل للجهاز
         self.model = BartForConditionalGeneration.from_pretrained(
             self.model_name,
             low_cpu_mem_usage=True,
-            dtype=pick_dtype(str(self.dev))   # ← استبدال torch_dtype بـ dtype
+            dtype=pick_dtype(str(self.dev))   # استبدال torch_dtype بـ dtype
         ).to(self.dev)
 
         # warmup خفيف لتسريع أول نداء
@@ -27,7 +30,15 @@ class Plugin(AIPlugin):
         print("[plugin] bart loaded on", self.dev)
 
     def _generate(self, text: str, max_length: int, min_length: int, do_sample: bool):
-        enc = self.tokenizer([text], return_tensors="pt", truncation=True, max_length=1024).to(self.dev)
+        enc = self.tokenizer(
+            [text],
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024,
+            return_attention_mask=True,   # لإزالة تحذير attention mask
+            padding=False
+        ).to(self.dev)
+
         with torch.no_grad():
             out_ids = self.model.generate(
                 **enc,
@@ -56,28 +67,50 @@ class Plugin(AIPlugin):
         min_length = max(5, min(min_length, max_length - 5))
 
         try:
-            if self.dev.type == "cuda": torch.cuda.synchronize()
+            if self.dev.type == "cuda":
+                torch.cuda.synchronize()
             t0 = time.time()
-            summary = self._generate(text, max_length, min_length, do_sample)
-            if self.dev.type == "cuda": torch.cuda.synchronize()
 
-            truncated = len(self.tokenizer.encode(text)) > 1024
+            summary = self._generate(text, max_length, min_length, do_sample)
+
+            if self.dev.type == "cuda":
+                torch.cuda.synchronize()
+
+            # تقدير الطول بشكل متوافق دائمًا (بدون return_length)
+            enc_ids = self.tokenizer(
+                text,
+                add_special_tokens=True,
+                truncation=False
+            )["input_ids"]
+            truncated = len(enc_ids) > 1024
 
             return {
                 "task": "summarize",
                 "device": str(self.dev),
                 "model": self.model_name,
                 "input_chars": len(text),
-                "truncated_to_1024_tokens": truncated,
-                "params": {"max_length": max_length, "min_length": min_length, "do_sample": do_sample},
+                "truncated_to_1024_tokens": bool(truncated),
+                "params": {
+                    "max_length": max_length,
+                    "min_length": min_length,
+                    "do_sample": do_sample
+                },
                 "summary": summary,
                 "elapsed_sec": round(time.time() - t0, 3)
             }
 
         except RuntimeError as e:
             if "CUDA out of memory" in str(e):
-                if self.dev.type == "cuda": torch.cuda.empty_cache()
-                return {"task": "summarize", "error": "CUDA OOM — جرّب تقليل max_length أو شغّل على CPU"}
-            return {"task":"summarize","error":str(e)}
+                if self.dev.type == "cuda":
+                    torch.cuda.empty_cache()
+                return {
+                    "task": "summarize",
+                    "error": "CUDA OOM — جرّب تقليل max_length أو شغّل على CPU"
+                }
+            return {"task": "summarize", "error": str(e)}
         except Exception as e:
-            return {"task":"summarize","error":str(e),"traceback":traceback.format_exc()}
+            return {
+                "task": "summarize",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }

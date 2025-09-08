@@ -55,24 +55,34 @@ class Plugin(AIPlugin):
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+    def _load_audio_16k_mono(self, path: Path, max_seconds: int = 600):
+        """
+        يرجّع waveform 1D @16kHz float32.
+        يحاول torchaudio أولاً، ثم soundfile، ثم wave (WAV PCM) كخيار أخير.
+        - يزيل DC offset
+        - يضمن النطاق [-1, 1]
+        - يقتطع الملفات الطويلة إلى `max_seconds` (افتراضي 10 دقائق)
+        """
+        import math
 
-    def _load_audio_16k_mono(self, path: Path):
-        """
-        يرجع waveform 1D @16kHz float32.
-        يحاول torchaudio أولاً، ثم soundfile، ثم wave (WAV فقط) كخيار أخير.
-        """
-        # 1) torchaudio (الأفضل إن اشتغل)
+        def _to_mono(w: torch.Tensor) -> torch.Tensor:
+            # [C, N] → [1, N]
+            if w.dim() == 2 and w.size(0) > 1:
+                w = w.mean(dim=0, keepdim=True)
+            elif w.dim() == 1:
+                w = w.unsqueeze(0)
+            return w
+
+        # 1) torchaudio (يدعم معظم الصيغ: wav, flac, mp3, m4a…)
+        sr = None
         try:
-            waveform, sr = torchaudio.load(str(path))  # [C, N]
+            waveform, sr = torchaudio.load(str(path))  # [C, N], dtype غالبًا float32 أو int16
         except Exception:
-            # 2) soundfile (لو مثبت)
+            # 2) soundfile (لو متوفّر)
             try:
                 import soundfile as sf
-                data, sr = sf.read(str(path), dtype="float32")  # [N] أو [N, C]
-                if data.ndim == 1:
-                    waveform = torch.from_numpy(data).unsqueeze(0)  # [1, N]
-                else:
-                    waveform = torch.from_numpy(data).permute(1, 0)  # [C, N]
+                data, sr = sf.read(str(path), dtype="float32", always_2d=True)  # [N, C]
+                waveform = torch.from_numpy(data).permute(1, 0)  # [C, N]
             except Exception:
                 # 3) wave (WAV PCM فقط)
                 import wave
@@ -80,26 +90,55 @@ class Plugin(AIPlugin):
                     sr = wf.getframerate()
                     n = wf.getnframes()
                     ch = wf.getnchannels()
-                    sampwidth = wf.getsampwidth()
+                    sw = wf.getsampwidth()
                     raw = wf.readframes(n)
-                # دعم 16-bit فقط هنا (للتبسيط)
-                if sampwidth != 2:
+                if sw != 2:
                     raise RuntimeError("Unsupported WAV sample width; please use 16-bit PCM.")
                 audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
                 if ch > 1:
                     audio = audio.reshape(-1, ch).mean(axis=1)
                 waveform = torch.from_numpy(audio).unsqueeze(0)  # [1, N]
 
-        # ستيريو→مونو
-        if waveform.dim() == 2 and waveform.size(0) > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        if waveform.numel() == 0:
+            raise RuntimeError("Empty audio file.")
+
+        # توحيد القناة: ستيريو → مونو
+        waveform = _to_mono(waveform)
+
+        # تحويل إلى float32
+        if waveform.dtype != torch.float32:
+            # int → float32 مع مقياس مناسب
+            if waveform.dtype == torch.int16:
+                waveform = (waveform.to(torch.float32) / 32768.0).clamp_(-1.0, 1.0)
+            elif waveform.dtype == torch.int32:
+                # 24-bit/32-bit PCM (تقريب شائع)
+                waveform = (waveform.to(torch.float32) / 2147483648.0).clamp_(-1.0, 1.0)
+            else:
+                waveform = waveform.to(torch.float32)
+
+        # إزالة DC offset
+        waveform = waveform - waveform.mean(dim=-1, keepdim=True)
+
+        # قصّ المدة الطويلة (قبل أو بعد إعادة التحجيم لا يفرق كثيرًا)
+        if max_seconds is not None and max_seconds > 0:
+            max_len = int(sr * max_seconds)
+            if waveform.size(-1) > max_len:
+                waveform = waveform[..., :max_len]
 
         # إلى 16kHz
         if sr != 16000:
             waveform = torchaudio.functional.resample(waveform, sr, 16000)
             sr = 16000
 
-        return waveform.squeeze(0).contiguous(), sr
+        # تأكيد على النطاق [-1, 1] وتجاور الذاكرة
+        waveform = waveform.clamp_(-1.0, 1.0).squeeze(0).contiguous()
+
+        # حماية من NaN/Inf
+        if not torch.isfinite(waveform).all():
+            waveform = torch.nan_to_num(waveform, nan=0.0, posinf=1.0, neginf=-1.0)
+
+        return waveform, sr
+
 
     def infer(self, payload: dict) -> dict:
         audio_ref = payload.get("audio_url") or payload.get("input")

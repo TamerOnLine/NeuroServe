@@ -1,0 +1,10 @@
+{
+  "provider": "translator_marian",
+  "task": "translate",
+  "text": "Welcome to the world.",
+  "source_lang": "english",
+  "target_lang": "arabic",
+  "max_new_tokens": 64,
+  "num_beams": 1,
+  "do_sample": false
+}

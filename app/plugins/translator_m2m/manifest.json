@@ -1,0 +1,10 @@
+{
+  "provider": "translator_m2m",
+  "task": "translate",
+  "text": "Guten Morgen",
+  "source_lang": "german",
+  "target_lang": "english",
+  "max_new_tokens": 64,
+  "num_beams": 1,
+  "do_sample": false
+}
