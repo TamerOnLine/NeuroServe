@@ -1,5 +1,6 @@
 {
-  "title": "ResNet18 Image Classifier",
-  "tasks": ["classify"],
-  "input": {"image_url": "string (http/https)", "topk": "int (default 5)"}
+  "provider": "resnet18",
+  "task": "classify",
+  "image_url": "https://images.unsplash.com/photo-1518717758536-85ae29035b6d",
+  "topk": 3
 }

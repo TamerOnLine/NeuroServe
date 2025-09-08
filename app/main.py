@@ -4,21 +4,27 @@ import json
 import os
 import platform
 import time
+import subprocess
+import sys
+from pathlib import Path
 from typing import Literal
 
 import psutil
 import torch
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from .runtime import cuda_info, warmup, pick_device
 from .toy_model import load_model
-
-from fastapi import UploadFile, File, HTTPException
 from .plugins.loader import discover, get, all_meta
+
+from fastapi.staticfiles import StaticFiles
+import os
+
+
 
 
 load_dotenv()  # Read .env file if it exists
@@ -29,14 +35,18 @@ app = FastAPI(title="gpu_server", version="0.1.0")
 MODEL = None
 DEVICE = None
 
+plugins_dir = os.path.join(os.path.dirname(__file__), "plugins")
+app.mount("/plugins-data", StaticFiles(directory=plugins_dir), name="plugins-data")
+
 
 @app.on_event("startup")
 def _startup():
-    """Load model and warm up on server startup."""
+    """Single startup hook: choose device, load toy model, warm up, discover plugins."""
     global MODEL, DEVICE
     DEVICE = pick_device()
     MODEL, _ = load_model()
     warmup_result = warmup()
+    discover(reload=True)  # load plugins once at startup
     print("[gpu_server] Warmup:", warmup_result)
 
 
@@ -61,11 +71,12 @@ def matmul(req: MatmulReq):
     x = torch.randn(n, n, device=dev)
     y = torch.randn(n, n, device=dev)
 
-    if torch.cuda.is_available():
+    # synchronize only if actual device is CUDA
+    if hasattr(dev, "type") and dev.type == "cuda":
         torch.cuda.synchronize()
     t0 = time.time()
-    z = x @ y
-    if torch.cuda.is_available():
+    _ = x @ y
+    if hasattr(dev, "type") and dev.type == "cuda":
         torch.cuda.synchronize()
 
     return {"n": n, "device": str(dev), "elapsed_sec": round(time.time() - t0, 4)}
@@ -78,19 +89,20 @@ class InferReq(BaseModel):
 
 @app.post("/infer")
 def infer(req: InferReq):
+    dev = DEVICE
     with torch.no_grad():
-        x = torch.randn(req.batch, req.in_features, device=DEVICE)
-        if torch.cuda.is_available():
+        x = torch.randn(req.batch, req.in_features, device=dev)
+        if hasattr(dev, "type") and dev.type == "cuda":
             torch.cuda.synchronize()
         t0 = time.time()
         y = MODEL(x)
-        if torch.cuda.is_available():
+        if hasattr(dev, "type") and dev.type == "cuda":
             torch.cuda.synchronize()
 
     return {
         "batch": req.batch,
         "out_shape": list(y.shape),
-        "device": str(DEVICE),
+        "device": str(dev),
         "elapsed_sec": round(time.time() - t0, 4),
     }
 
@@ -148,37 +160,31 @@ def env_system(request: Request, pretty: bool = False):
     return info
 
 
-import subprocess
-
 @app.post("/run/test-api")
 def run_test_api():
     """Run the test_api.py script and return its output."""
     try:
         result = subprocess.run(
-            ["python", "-m", "scripts.test_api"],
+            [sys.executable, "-m", "scripts.test_api"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=120,  # seconds
         )
-        return {"success": True, "output": result.stdout}
+        return {"success": True, "output": result.stdout, "stderr": result.stderr}
     except subprocess.CalledProcessError as e:
-        return {"success": False, "error": e.stderr}
-    
-
-@app.on_event("startup")
-def _startup():
-    global MODEL, DEVICE
-    DEVICE = pick_device()
-    MODEL, _ = load_model()  # TinyNet القديم يبقى كما هو (اختياري)  
-    warmup_result = warmup()
-    discover(reload=True)    # ← تحميل جميع الـ plugins عند البدء
-    print("[gpu_server] Warmup:", warmup_result)
+        return {"success": False, "error": e.stderr or str(e)}
+    except subprocess.TimeoutExpired as e:
+        return {"success": False, "error": f"Timed out after {e.timeout}s"}
+    except Exception as e:
+        return {"success": False, "error": repr(e)}
 
 
 @app.get("/plugins")
 def list_plugins():
-    """قائمة المزوّدين المتاحين (من المجلد plugins/*)."""
+    """قائمة المزودين المتاحين (من المجلد plugins/*)."""
     return {"providers": list(all_meta().values())}
+
 
 @app.post("/inference")
 def generic_inference(payload: dict):
@@ -194,15 +200,16 @@ def generic_inference(payload: dict):
         raise HTTPException(404, f"Provider '{provider}' not found")
     try:
         out = plugin.infer(payload)
-        return {"provider": provider, **out}
+        return {"provider": provider, **(out if isinstance(out, dict) else {"result": out})}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
 
 
-
-
-# Template rendering
-templates = Jinja2Templates(directory="app/templates")
+# Template rendering (resolve path robustly)
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
 @app.get("/", response_class=HTMLResponse)

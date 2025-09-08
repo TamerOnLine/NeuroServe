@@ -1,0 +1,10 @@
+{
+  "provider": "mt5",
+  "task": "translate",
+  "text": "مرحبا بالعالم",
+  "source_lang": "arabic",
+  "target_lang": "english",
+  "max_new_tokens": 64,
+  "num_beams": 4,
+  "do_sample": false
+}

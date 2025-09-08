@@ -1,7 +1,5 @@
 {
   "provider": "whisper",
-  "task": "speech-to-text",
-  "input": "https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/jfk.flac",
-  "language": "en"
+  "task": "infer",
+  "input": "samples/test.wav"
 }
-

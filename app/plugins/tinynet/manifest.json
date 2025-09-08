@@ -1,5 +1,6 @@
 {
-  "title": "TinyNet Demo",
-  "tasks": ["infer"],
-  "input": {"batch": "int (1..256)", "in_features": 512}
+  "provider": "tinynet",
+  "task": "infer",
+  "batch": 8,
+  "in_features": 512
 }
