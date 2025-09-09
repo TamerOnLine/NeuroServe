@@ -1,11 +1,11 @@
-# .github/workflows/gpu-test.yml
 name: GPU Test
 on:
   push:
   workflow_dispatch:
+
 jobs:
   test-gpu:
-    runs-on: [self-hosted, gpu]   
+    runs-on: [self-hosted, gpu]   # فقط هدول!
     steps:
       - uses: actions/checkout@v4
       - name: Show GPU
