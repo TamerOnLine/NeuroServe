@@ -28,7 +28,10 @@ from app.routes.uploads import router as uploads_router
 
 from fastapi.encoders import jsonable_encoder
 
+import logging, uuid, time
+from fastapi import Request
 
+log = logging.getLogger("neuroserve")
 
 
 load_dotenv()  # Read .env file if it exists
@@ -37,6 +40,30 @@ app = FastAPI(title="gpu_server", version="0.1.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(uploads_router)
+
+ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1","true","yes")
+
+if ENABLE_TRACE:
+    @app.middleware("http")
+    async def tracing_middleware(request: Request, call_next):
+        # تجاهل الأصول الثابتة لتقليل الضجيج
+        path = request.url.path
+        if path.startswith("/static") or path.startswith("/plugins-data"):
+            return await call_next(request)
+
+        req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = req_id  # متاح داخل المسارات/البلَغنز
+        method = request.method
+
+        t0 = time.perf_counter()
+        log.info(f"[req {req_id}] -> {method} {path}")
+
+        response = await call_next(request)
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        response.headers["X-Request-ID"] = req_id
+        log.info(f"[req {req_id}] <- {method} {path} | {response.status_code} | {elapsed_ms:.1f} ms")
+        return response
 
 # Global model and device
 MODEL = None
@@ -239,35 +266,69 @@ def run_test_api():
 
 
 
-@app.post("/inference")
-async def generic_inference(payload: dict):
-    provider = str(payload.get("provider", "")).strip()
-    if not provider:
-        raise HTTPException(400, "Missing 'provider'")
-    plugin = get(provider)
-    if not plugin:
-        raise HTTPException(404, f"Provider '{provider}' not found")
-
+@app.post("/inference", response_class=JSONResponse)
+async def generic_inference(request: Request):
+    """
+    يقبل:
+      - جسم JSON مفرد: { "provider": "...", "task": "...", ... }
+      - أو مصفوفة JSON: [ {..}, {..}, ... ]
+    ويعيد نتيجة مفردة أو مصفوفة على الترتيب.
+    """
     try:
-        out = plugin.infer(payload)
-        if hasattr(out, "__await__"):  # coroutine
-            out = await out
-        if not isinstance(out, dict):
-            out = {"result": out}
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
 
-        data = {"provider": provider, **out}
+    def run_one(item: dict):
+        provider = str(item.get("provider", "")).strip()
+        if not provider:
+            return {"error": "Missing 'provider'", "request": item}
+        plugin = get(provider)
+        if not plugin:
+            return {"error": f"Provider '{provider}' not found", "request": item}
+        try:
+            out = plugin.infer(item)
+            if hasattr(out, "__await__"):
+                # في حال كان plugin async
+                return None, out  # نُعيد كوروتين ونعالجه خارجيًا
+            if not isinstance(out, dict):
+                out = {"result": out}
+            data = {"provider": provider, **out}
+            return _to_jsonable(data)
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}", "request": item}
 
-        # 👇 التعقيم هنا
-        safe = _to_jsonable(data)
+    # دفعة متعددة
+    if isinstance(body, list):
+        results = []
+        # ملاحظة: لو عندك Plugins async كثيرة، ممكن نعمل gather؛ هنا ابقيناها بسيطة ومتزامنة.
+        for item in body:
+            if not isinstance(item, dict):
+                results.append({"error": "Each item must be an object.", "request": item})
+                continue
+            res = run_one(item)
+            if isinstance(res, tuple) and res[1] is not None:
+                # كوروتين (نادرًا)—نحوّلها لنتيجة فعلًا
+                out = await res[1]
+                if not isinstance(out, dict):
+                    out = {"result": out}
+                results.append(_to_jsonable({"provider": item.get("provider"), **out}))
+            else:
+                results.append(res)
+        return JSONResponse({"results": results})
 
-        # بإمكانك الآن إرجاعها مباشرة بدون jsonable_encoder
-        return JSONResponse(content=safe)
+    # طلب مفرد
+    if isinstance(body, dict):
+        res = run_one(body)
+        if isinstance(res, tuple) and res[1] is not None:
+            out = await res[1]
+            if not isinstance(out, dict):
+                out = {"result": out}
+            return JSONResponse(_to_jsonable({"provider": body.get("provider"), **out}))
+        return JSONResponse(res)
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        raise HTTPException(500, f"{type(e).__name__}: {e}")
+    raise HTTPException(status_code=400, detail="Body must be an object or a list of objects.")
+
 
 
 

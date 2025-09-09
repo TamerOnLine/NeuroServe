@@ -1,0 +1,6 @@
+{
+  "provider": "pdf_reader",
+  "task": "extract-text",
+  "file_path": "docs/sample.pdf",
+  "max_pages": 3
+}
