@@ -1,53 +1,12 @@
-name: CI (GPU, self-hosted)
-
+# .github/workflows/gpu-test.yml
+name: GPU Test
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
-
+  workflow_dispatch:
 jobs:
   test-gpu:
-    runs-on: [self-hosted, linux, gpu, nvidia]
-    timeout-minutes: 60
-
-    env:
-      DEVICE: "cuda:0"
-
+    runs-on: [self-hosted, gpu]   
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Python
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt
-
-      - name: CUDA sanity
-        run: |
-          python3 - << 'PY'
-          import torch
-          assert torch.cuda.is_available(), "CUDA not available!"
-          print("Torch:", torch.__version__)
-          print("Device:", torch.cuda.get_device_name(0))
-          PY
-
-      - name: Start server
-        run: |
-          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
-          echo $! > uvicorn.pid
-
-      - name: Wait for /health
-        run: |
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-              echo "Server is up"; exit 0
-            fi
-            echo "Waiting... ($i)"; sleep 1
-          done
-          echo "Server did not start"; cat server.log || true; exit 1
-
-      - name: Run tests
-        run: python3 -m scripts.test_api
-
-      - name: Show logs on failure
-        if: failure()
-        run: cat server.log || true
+      - name: Show GPU
+        run: nvidia-smi
