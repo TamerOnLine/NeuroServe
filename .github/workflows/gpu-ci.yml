@@ -1,0 +1,65 @@
+name: CI (GPU, self-hosted)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "app/**"
+      - "scripts/**"
+      - "requirements.txt"
+      - ".github/workflows/gpu-ci.yml"
+
+jobs:
+  test-gpu:
+    runs-on: [self-hosted, linux, gpu, nvidia]
+    timeout-minutes: 60
+
+    env:
+      DEVICE: "cuda:0"
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        run: |
+          python3 -V
+          python3 -m pip install --upgrade pip
+          python3 -m pip -V
+
+      - name: Install dependencies
+        run: |
+          pip3 install -r requirements.txt
+          python3 -m scripts.install_torch
+
+      - name: CUDA sanity
+        run: |
+          python3 - << 'PY'
+          import torch
+          assert torch.cuda.is_available(), "CUDA not available on this runner"
+          print("Torch:", torch.__version__)
+          print("CUDA device count:", torch.cuda.device_count())
+          print("Device 0:", torch.cuda.get_device_name(0))
+          PY
+
+      - name: Start server
+        run: |
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          echo $! > uvicorn.pid
+          sleep 5
+
+      - name: GPU smoke tests
+        run: |
+          python3 - << 'PY'
+          import urllib.request
+          print("GET /cuda ->", urllib.request.urlopen("http://127.0.0.1:8000/cuda").read().decode()[:250], "...")
+          print("POST /infer ->", urllib.request.urlopen(
+            urllib.request.Request("http://127.0.0.1:8000/infer",
+              data=b'{"batch":8,"in_features":512}', headers={"Content-Type":"application/json"}, method="POST")
+          ).read().decode())
+          PY
+
+      - name: Show server logs on failure
+        if: failure()
+        run: sed -n '1,240p' server.log || true

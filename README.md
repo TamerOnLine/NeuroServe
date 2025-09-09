@@ -3,6 +3,9 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Framework-green)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI (CPU, 3 OS)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci.yml)
+[![CI (GPU, self-hosted)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml)
+
 
 A lightweight **REST API server** powered by **FastAPI** & **PyTorch**.  
 It runs seamlessly on **GPU (CUDA)** if available, and safely falls back to **CPU**.  
