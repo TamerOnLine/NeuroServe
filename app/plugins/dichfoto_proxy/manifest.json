@@ -1,0 +1,11 @@
+{
+  "provider": "dichfoto_proxy",
+  "task": "forward",
+  "description": "Proxy to interact with dichfoto.com endpoints",
+  "example": {
+    "provider": "dichfoto_proxy",
+    "task": "forward",
+    "endpoint": "/albums",
+    "method": "GET"
+  }
+}

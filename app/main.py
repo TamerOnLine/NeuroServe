@@ -330,3 +330,9 @@ def api_model_size(
 @app.get("/plugins/ui", response_class=HTMLResponse)
 def plugins_console(request: Request):
     return templates.TemplateResponse("plugins.html", {"request": request})
+
+
+
+@app.get("/infer-client", response_class=HTMLResponse)
+async def infer_client(request: Request):
+    return templates.TemplateResponse("infer-client.html", {"request": request})

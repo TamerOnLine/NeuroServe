@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>Infer Client — External UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b0b0c; --card:#121214; --text:#eee; --muted:#999; --pri:#2563eb; --bd:#2a2a2e }
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+    h1{margin:0 0 12px} .hint{color:var(--muted);font-size:13px;margin-top:6px}
+    label{display:block;margin:8px 0 4px} input,textarea,select{width:100%;background:#0f0f11;color:var(--text);
+      border:1px solid var(--bd);border-radius:8px;padding:10px}
+    textarea{min-height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;direction:ltr}
+    .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button{background:var(--pri);color:#fff;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}
+    button.secondary{background:#1f2937}
+    pre{white-space:pre-wrap;word-wrap:break-word;background:#0f0f11;border:1px solid var(--bd);border-radius:8px;padding:12px;min-height:220px}
+    .ok{color:#7dd3fc} .err{color:#fda4af}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>External Infer Client</h1>
+    <div class="row">
+      <div class="card">
+        <label>Server URL</label>
+        <input id="server" value="http://localhost:8000/infer" />
+        <label>API Key (اختياري)</label>
+        <input id="key" placeholder="X-API-Key" />
+        <label>JSON Request</label>
+        <textarea id="req">{
+  "provider": "wordcount",
+  "task": "count",
+  "text": "مرحبا بك في عالم السيرفر"
+}</textarea>
+        <div class="hint">ملاحظة: لو كتبت مصفوفة طلبات <code>[ {...}, {...} ]</code> سيُرسلها كدفعة ويجمع النتائج.</div>
+        <div class="btns">
+          <button id="send">Send</button>
+          <button class="secondary" id="pretty">Pretty</button>
+          <button class="secondary" id="clear">Clear</button>
+        </div>
+      </div>
+      <div class="card">
+        <label>Response</label>
+        <pre id="res">—</pre>
+        <div class="hint">الحالة: <span id="status" class="ok">جاهز</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (s)=>document.querySelector(s);
+    const server=$('#server'), key=$('#key'), req=$('#req'), res=$('#res'), status=$('#status');
+    const setStatus=(t,c)=>{status.textContent=t; status.className=c||''}
+
+    async function callInfer(body){
+      const headers = {"Content-Type":"application/json"};
+      const k = key.value.trim(); if(k) headers["X-API-Key"]=k;
+      const r = await fetch(server.value.trim(), {method:"POST", headers, body: JSON.stringify(body)});
+      const txt = await r.text();
+      try { return {ok:r.ok, status:r.status, json: JSON.parse(txt)}; }
+      catch { return {ok:r.ok, status:r.status, text: txt}; }
+    }
+
+    $('#send').onclick = async ()=>{
+      setStatus('جارٍ الإرسال...', ''); res.textContent='...';
+      let payload;
+      try { payload = JSON.parse(req.value); }
+      catch(e){ setStatus('JSON غير صالح', 'err'); res.textContent=String(e); return; }
+
+      try{
+        let out;
+        if(Array.isArray(payload)){
+          // batch: أرسل الطلبات واحدًا واحدًا وجمّع الردود
+          out = [];
+          for(const item of payload){
+            const r = await callInfer(item);
+            out.push(r.json ?? {status:r.status, body:r.text});
+          }
+        }else{
+          const r = await callInfer(payload);
+          out = r.json ?? {status:r.status, body:r.text};
+        }
+        res.textContent = JSON.stringify(out, null, 2);
+        setStatus('تم ✔', 'ok');
+      } catch(err){
+        res.textContent = String(err);
+        setStatus('فشل ✖', 'err');
+      }
+    };
+
+    $('#pretty').onclick = ()=>{
+      try { req.value = JSON.stringify(JSON.parse(req.value), null, 2); }
+      catch(e){ /* ignore */ }
+    };
+    $('#clear').onclick = ()=>{ res.textContent='—'; setStatus('جاهز','ok'); };
+  </script>
+</body>
+</html>
