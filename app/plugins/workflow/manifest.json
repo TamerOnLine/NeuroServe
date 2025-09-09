@@ -1,1 +1,25 @@
-{ "provider": "workflow", "task": "run", "steps": [] }
+{
+  "provider": "workflow",
+  "task": "run",
+  "steps": [
+    {
+      "provider": "translator_m2m",
+      "task": "translate",
+      "text": "هذا النص مثال طويل قليلاً لاختبار خط الأنابيب.",
+      "source_lang": "ar",
+      "target_lang": "en"
+    },
+    {
+      "provider": "bart",
+      "task": "summarize",
+      "text": "{{last.output}}",
+      "max_length": 60,
+      "min_length": 20
+    },
+    {
+      "provider": "distilbert",
+      "task": "text-classify",
+      "text": "{{last.summary}}"
+    }
+  ]
+}

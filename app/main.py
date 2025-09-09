@@ -17,7 +17,6 @@ import psutil
 import torch
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,11 +28,15 @@ from .toy_model import load_model
 from .plugins.loader import discover, get, all_meta
 from app.routes.uploads import router as uploads_router
 
+# (اختياري) إن كنت قد أضفت أداة التوحيد
+try:
+    from app.utils.unify import unify_response
+    _HAS_UNIFY = True
+except Exception:
+    _HAS_UNIFY = False
 
 log = logging.getLogger("neuroserve")
 logging.basicConfig(level=logging.INFO)
-
-
 
 load_dotenv()  # Read .env file if it exists
 
@@ -42,7 +45,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(uploads_router)
 
-ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1","true","yes")
+ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1", "true", "yes")
 
 if ENABLE_TRACE:
     @app.middleware("http")
@@ -53,7 +56,7 @@ if ENABLE_TRACE:
             return await call_next(request)
 
         req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        request.state.request_id = req_id  # متاح داخل المسارات/البلَغنز
+        request.state.request_id = req_id
         method = request.method
 
         t0 = time.perf_counter()
@@ -63,14 +66,17 @@ if ENABLE_TRACE:
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
         response.headers["X-Request-ID"] = req_id
-        log.info(f"[req {req_id}] <- {method} {path} | {response.status_code} | {elapsed_ms:.1f} ms")
+        log.info(
+            f"[req {req_id}] <- {method} {path} | {response.status_code} | {elapsed_ms:.1f} ms"
+        )
         return response
 
 # Global model and device
 MODEL = None
 DEVICE = None
 
-plugins_dir = os.path.join(os.path.dirname(__file__), "plugins")
+BASE_DIR = os.path.dirname(__file__)
+plugins_dir = os.path.join(BASE_DIR, "plugins")
 app.mount("/plugins-data", StaticFiles(directory=plugins_dir), name="plugins-data")
 
 
@@ -122,7 +128,6 @@ def matmul(req: MatmulReq):
     return {"n": n, "device": str(dev), "elapsed_sec": round(time.time() - t0, 4)}
 
 
-
 class InferReq(BaseModel):
     batch: int = Field(4, ge=1, le=256)
     in_features: Literal[512] = 512
@@ -150,10 +155,10 @@ def infer(req: InferReq):
 def _to_jsonable(obj):
     try:
         import numpy as np
-        import torch
+        import torch as _torch
     except Exception:
         np = None
-        torch = None
+        _torch = None
 
     if obj is None:
         return None
@@ -167,7 +172,7 @@ def _to_jsonable(obj):
         except Exception:
             return str(obj)
     # torch tensors
-    if torch is not None and hasattr(obj, "detach") and hasattr(obj, "cpu"):
+    if _torch is not None and hasattr(obj, "detach") and hasattr(obj, "cpu"):
         try:
             return obj.detach().cpu().tolist()
         except Exception:
@@ -186,14 +191,14 @@ def _to_jsonable(obj):
         return str(obj)
     except Exception:
         return None
-    
+
+
 def _sync_if_cuda(dev):
     if hasattr(dev, "type") and dev.type == "cuda":
         torch.cuda.synchronize()
 
 
-
-
+# --- helpers: env/info endpoints ---
 @app.get("/env")
 def env(request: Request, pretty: bool = False):
     data = {
@@ -202,7 +207,10 @@ def env(request: Request, pretty: bool = False):
         "device_env": os.getenv("DEVICE", None),
     }
     if pretty:
-        return Response(json.dumps(data, ensure_ascii=False, indent=2), media_type="application/json")
+        return Response(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            media_type="application/json",
+        )
     return data
 
 
@@ -213,18 +221,25 @@ def env_full(request: Request, pretty: bool = False):
     if torch.cuda.is_available():
         for i in range(torch.cuda.device_count()):
             p = torch.cuda.get_device_properties(i)
-            gpus.append({
-                "index": i,
-                "name": p.name,
-                "total_memory_gb": round(p.total_memory / (1024 ** 3), 2),
-            })
-    info.update({
-        "python": f"{os.sys.version_info.major}.{os.sys.version_info.minor}",
-        "device_env": os.getenv("DEVICE", None),
-        "gpus": gpus,
-    })
+            gpus.append(
+                {
+                    "index": i,
+                    "name": p.name,
+                    "total_memory_gb": round(p.total_memory / (1024 ** 3), 2),
+                }
+            )
+    info.update(
+        {
+            "python": f"{os.sys.version_info.major}.{os.sys.version_info.minor}",
+            "device_env": os.getenv("DEVICE", None),
+            "gpus": gpus,
+        }
+    )
     if pretty:
-        return Response(json.dumps(info, ensure_ascii=False, indent=2), media_type="application/json")
+        return Response(
+            json.dumps(info, ensure_ascii=False, indent=2),
+            media_type="application/json",
+        )
     return info
 
 
@@ -243,7 +258,10 @@ def env_system(request: Request, pretty: bool = False):
         "ram_gb": round(psutil.virtual_memory().total / (1024 ** 3), 2),
     }
     if pretty:
-        return Response(json.dumps(info, ensure_ascii=False, indent=2), media_type="application/json")
+        return Response(
+            json.dumps(info, ensure_ascii=False, indent=2),
+            media_type="application/json",
+        )
     return info
 
 
@@ -267,8 +285,32 @@ def run_test_api():
         return {"success": False, "error": repr(e)}
 
 
+# ================================
+# Defaults from manifest (NEW)
+# ================================
+def apply_manifest_defaults(provider: str, task: str, req: dict) -> dict:
+    """
+    يدمج قيم defaults من manifest لكل مزوّد/مهمة مع طلب المستخدم.
+    أولوية الدمج: قيم الطلب > الافتراضات.
+    """
+    mf_path = os.path.join(plugins_dir, provider, "manifest.json")
+    try:
+        with open(mf_path, "r", encoding="utf-8") as f:
+            mf = json.load(f)
+    except Exception:
+        mf = {}
+    defs = (mf.get("defaults") or {}).get(task or "infer", {})
+    # طلب المستخدم يتفوّق على الافتراضات
+    merged = {**defs, **req}
+    # تأكد من تعيين provider/task في الناتج النهائي
+    merged.setdefault("provider", provider)
+    merged.setdefault("task", task or "infer")
+    return merged
 
 
+# ================================
+# Generic inference (RAW)
+# ================================
 @app.post("/inference", response_class=JSONResponse)
 async def generic_inference(request: Request):
     """
@@ -290,7 +332,11 @@ async def generic_inference(request: Request):
         if not plugin:
             return {"error": f"Provider '{provider}' not found", "request": item}
         try:
-            out = plugin.infer(item)
+            # ✅ دمج الافتراضات من manifest قبل الاستدعاء
+            task = str(item.get("task", "infer"))
+            item_merged = apply_manifest_defaults(provider, task, item)
+
+            out = plugin.infer(item_merged)
             if hasattr(out, "__await__"):
                 # في حال كان plugin async
                 return None, out  # نُعيد كوروتين ونعالجه خارجيًا
@@ -304,14 +350,12 @@ async def generic_inference(request: Request):
     # دفعة متعددة
     if isinstance(body, list):
         results = []
-        # ملاحظة: لو عندك Plugins async كثيرة، ممكن نعمل gather؛ هنا ابقيناها بسيطة ومتزامنة.
         for item in body:
             if not isinstance(item, dict):
                 results.append({"error": "Each item must be an object.", "request": item})
                 continue
             res = run_one(item)
             if isinstance(res, tuple) and res[1] is not None:
-                # كوروتين (نادرًا)—نحوّلها لنتيجة فعلًا
                 out = await res[1]
                 if not isinstance(out, dict):
                     out = {"result": out}
@@ -333,8 +377,79 @@ async def generic_inference(request: Request):
     raise HTTPException(status_code=400, detail="Body must be an object or a list of objects.")
 
 
+# ================================
+# Unified inference (ENVELOPE)
+# ================================
+@app.post("/api/unified-inference", response_class=JSONResponse)
+async def unified_inference(request: Request):
+    """
+    نفس /inference لكن يُرجع Envelope موحّد:
+    { provider, task, status, data, error?, meta?, elapsed_sec?, schema_version }
+    يقبل جسم مفرد أو مصفوفة.
+    """
+    if not _HAS_UNIFY:
+        raise HTTPException(
+            status_code=501,
+            detail="Unified response not available (app.utils.unify missing).",
+        )
 
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
 
+    async def run_one(item: dict):
+        provider = str(item.get("provider", "")).strip()
+        task = str(item.get("task", "infer")).strip()
+        if not provider or not task:
+            return {
+                "provider": provider or None,
+                "task": task or None,
+                "status": "error",
+                "error": {"type": "BadRequest", "message": "Missing provider/task"},
+                "schema_version": 1,
+            }
+
+        plugin = get(provider)
+        if not plugin:
+            return {
+                "provider": provider,
+                "task": task,
+                "status": "error",
+                "error": {"type": "ProviderNotFound", "message": f"Provider '{provider}' not found"},
+                "schema_version": 1,
+            }
+
+        # ✅ دمج الافتراضات من manifest قبل الاستدعاء
+        item_merged = apply_manifest_defaults(provider, task, item)
+
+        out = plugin.infer(item_merged)
+        if hasattr(out, "__await__"):
+            out = await out
+        if not isinstance(out, dict):
+            out = {"result": out}
+        # لفّ الاستجابة في ظرف موحّد
+        return unify_response(provider, task, out)
+
+    if isinstance(body, list):
+        results = []
+        for item in body:
+            if not isinstance(item, dict):
+                results.append(
+                    {
+                        "status": "error",
+                        "error": {"type": "BadRequest", "message": "Each item must be an object"},
+                        "schema_version": 1,
+                    }
+                )
+                continue
+            results.append(await run_one(item))
+        return JSONResponse({"results": results})
+
+    if isinstance(body, dict):
+        return JSONResponse(await run_one(body))
+
+    raise HTTPException(status_code=400, detail="Body must be an object or a list of objects.")
 
 
 # Template rendering (resolve path robustly)
@@ -396,7 +511,11 @@ def plugins_console(request: Request):
     return templates.TemplateResponse("plugins.html", {"request": request})
 
 
-
 @app.get("/infer-client", response_class=HTMLResponse)
 async def infer_client(request: Request):
     return templates.TemplateResponse("infer-client.html", {"request": request})
+
+
+@app.get("/plugins/unified", response_class=HTMLResponse)
+def plugins_unified(request: Request):
+    return templates.TemplateResponse("unified.html", {"request": request})

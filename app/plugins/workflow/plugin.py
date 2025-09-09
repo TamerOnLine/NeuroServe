@@ -1,241 +1,178 @@
-from app.plugins.base import AIPlugin
-from app.plugins.loader import get as get_plugin
-import os, re, uuid, logging
-from time import perf_counter
-from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+import time, inspect
 
-log = logging.getLogger("workflow")
-DEBUG = os.getenv("WORKFLOW_DEBUG", "0").lower() in ("1", "true", "yes")
+try:
+    from app.plugins.base import AIPlugin
+except Exception:
+    class AIPlugin:
+        tasks: List[str] = []
+        def load(self, *_, **__): ...
+        async def infer(self, payload: Dict[str, Any]): ...
 
-# ---------- utils ----------
-def utc_now_iso():
-    return datetime.now(timezone.utc).isoformat()
+# ✅ نستخدم الريجستري العالمي من loader.py كـ fallback
+from app.plugins.loader import get as get_plugin, all_meta
 
-def pluck(obj, dotted, default=None):
+def _deep_get(obj: Any, path: str, default: Any = "") -> Any:
+    if not isinstance(path, str) or not path:
+        return default
     cur = obj
-    for part in str(dotted).split("."):
-        if part == "": 
-            continue
-        if isinstance(cur, list):
-            try:
-                part = int(part)
-            except Exception:
-                return default
-        try:
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
             cur = cur[part]
-        except (KeyError, IndexError, TypeError):
+        else:
             return default
     return cur
 
-_TMPL = re.compile(r"{{\s*([^}]+)\s*}}")
-def render_tmpl(s: str, ctx: dict):
-    def repl(m):
-        key = m.group(1)
-        val = pluck(ctx, key, "")
-        return "" if val is None else str(val)
-    return _TMPL.sub(repl, s)
+def _subst(obj: Any, last: Any) -> Any:
+    """
+    استبدال المتغيّرات البسيطة المعتمدة على نتيجة الخطوة السابقة:
+      - {{last.output}}
+      - {{last.text}}
+      - {{last.summary}}
+      - {{last}}
+    """
+    def rep(s: str) -> str:
+        if not isinstance(s, str):
+            return s
+        out = s
+        if "{{last.output}}" in out:
+            out = out.replace("{{last.output}}", str(_deep_get(last, "output", "")))
+        if "{{last.text}}" in out:
+            out = out.replace("{{last.text}}", str(_deep_get(last, "text", "")))
+        if "{{last.summary}}" in out:
+            out = out.replace("{{last.summary}}", str(_deep_get(last, "summary", "")))
+        if "{{last}}" in out:
+            out = out.replace("{{last}}", "" if last is None else str(last))
+        return out
+    if isinstance(obj, dict):
+        return {k: _subst(v, last) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_subst(v, last) for v in obj]
+    if isinstance(obj, str):
+        return rep(obj)
+    return obj
 
-def render_obj(x, ctx):
-    if isinstance(x, str): 
-        return render_tmpl(x, ctx)
-    if isinstance(x, list): 
-        return [render_obj(i, ctx) for i in x]
-    if isinstance(x, dict): 
-        return {k: render_obj(v, ctx) for k, v in x.items()}
-    return x
-
-def chunk_text(text: str, max_chars=1200, overlap=80):
-    text = (text or "").replace("\r", "")
-    out, n, i = [], len(text), 0
-    while i < n:
-        j = min(i + max_chars, n)
-        # قص ذكي عند حدود سطر/جملة إن أمكن
-        cut = max(text.rfind("\n", i, j), text.rfind(". ", i, j))
-        if cut == -1 or cut <= i + 50:
-            cut = j
-        out.append(text[i:cut].strip())
-        i = n if cut >= n else max(cut - overlap, 0)
-    return [s for s in out if s]
-
-def infer_local(provider: str, task: str, payload: dict) -> dict:
-    plugin = get_plugin(provider)
-    if plugin is None:
-        return {"error": f"unknown provider '{provider}'", "payload": payload}
-    req = dict(payload)
-    req["task"] = task
-    return plugin.infer(req)
-# ---------- /utils ----------
+def _subst_item(obj: Any, item: Any) -> Any:
+    """
+    استبدال {{item}} عند استخدام op=map
+    """
+    def rep(s: str) -> str:
+        return s.replace("{{item}}", str(item)) if isinstance(s, str) else s
+    if isinstance(obj, dict):
+        return {k: _subst_item(v, item) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_subst_item(v, item) for v in obj]
+    if isinstance(obj, str):
+        return rep(obj)
+    return obj
 
 class Plugin(AIPlugin):
-    """
-    provider: workflow
-    task: run
-
-    الخطوات تدعم:
-      - op: infer | set | when | foreach | chunk  (الافتراضي: infer)
-      - name: اسم الخطوة لمرجعتها لاحقًا
-      - provider / task (للـ infer)
-      - from: "stepName.path" لأخذ قيمة كنص دخل
-      - text: نص يدعم {{vars.key}} و {{step.field}} وقيم من نتائج سابقة
-      - params: تُدمج كما هي بعد التمبليت
-      - when: if/then لتنفيذ مشروط
-      - foreach: in/do/to للتكرار على قائمة
-      - chunk: from/max_chars/overlap/to لتقطيع نص طويل
-    """
     tasks = ["run"]
 
-    def load(self) -> None:
-        log.info("[plugin] workflow ready (sequential local-call)")
+    def __init__(self):
+        super().__init__()
+        self.registry: Optional[Dict[str, Any]] = None
 
-    def infer(self, payload: dict) -> dict:
-        workflow_id = payload.get("workflow_id") or str(uuid.uuid4())
-        steps = payload.get("steps") or []
-        stop_on_error = bool(payload.get("stop_on_error", True))
+    def load(self, context: Optional[Dict[str, Any]] = None):
+        """
+        نحاول التقاط الريجستري من:
+          - context["registry"] أو context["plugins"]
+          - self.app.registry (إن وُجد)
+        وإلا، سنعتمد على loader.get(...) كـ fallback داخل _get_plugin.
+        """
+        if isinstance(context, dict):
+            if "registry" in context and isinstance(context["registry"], dict):
+                self.registry = context["registry"]
+            elif "plugins" in context and isinstance(context["plugins"], dict):
+                self.registry = context["plugins"]
+        if self.registry is None and hasattr(self, "app") and hasattr(self.app, "registry"):
+            self.registry = getattr(self.app, "registry")
 
-        if not steps:
-            return {"provider":"workflow","task":"run","error":"steps[] is required"}
+    def _get_plugin(self, provider: str):
+        """
+        ترتيب البحث:
+          1) self.registry (إن كانت موجودة)
+          2) الريجستري العالمي عبر loader.get(provider)
+          3) خصائص إضافية app/manager/loader إن كانت تضع registry أو plugins
+        """
+        if isinstance(self.registry, dict) and provider in self.registry:
+            return self.registry[provider]
 
-        ctx = {"vars": {}}    # مساحة متغيرات عامة
-        results = {}          # نتائج الخطوات بالاسم
-        trace = []
-        step_timings = []
+        # ✅ fallback إلى الريجستري العالمي الذي عبّأته discover() عند بدء السيرفر
+        p = get_plugin(provider)
+        if p is not None:
+            return p
 
-        t0 = perf_counter()
-        started_at = utc_now_iso()
+        # محاولات إضافية (لو في بيئات أخرى تعلق registry/plugins)
+        if hasattr(self, "plugins") and isinstance(self.plugins, dict) and provider in self.plugins:
+            return self.plugins[provider]
+        for attr in ("app", "manager", "loader"):
+            scope = getattr(self, attr, None)
+            if hasattr(scope, "registry") and isinstance(scope.registry, dict) and provider in scope.registry:
+                return scope.registry[provider]
+            if hasattr(scope, "plugins") and isinstance(scope.plugins, dict) and provider in scope.plugins:
+                return scope.plugins[provider]
+        return None
 
-        def run_steps(seq):
-            nonlocal ctx, results, trace, step_timings
-            for idx, step in enumerate(seq, start=1):
-                op = step.get("op", "infer")
-                name = step.get("name") or f"step{len(trace)+1}"
+    async def _call_step(self, step_payload: Dict[str, Any]) -> Any:
+        prov = step_payload.get("provider"); task = step_payload.get("task")
+        if not prov or not task:
+            return {"error": "provider/task missing", "step": step_payload}
+        plugin = self._get_plugin(prov)
+        if plugin is None:
+            return {"error": f"provider '{prov}' not found", "step": step_payload}
+        out = plugin.infer(step_payload)
+        if inspect.iscoroutine(out):
+            out = await out
+        return out
 
-                s0 = perf_counter()
-                s_started = utc_now_iso()
-                out = {}
+    async def _run(self, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+        results = []
+        last: Any = None
+        timing_steps = []
+        t_total0 = time.time()
 
-                try:
-                    if op == "set":
-                        key = step["key"]
-                        val = render_obj(step.get("value"), {**results, **ctx})
-                        ctx["vars"][key] = val
-                        out = {"ok": True, "vars": {key: val}}
+        for idx, raw_step in enumerate(steps):
+            name = f"step{idx+1}"
+            t0 = time.time()
 
-                    elif op == "chunk":
-                        source = step.get("from")
-                        text = pluck(results, source) if source else step.get("text", "")
-                        text = render_tmpl(text or "", {**results, **ctx})
-                        max_chars = int(step.get("max_chars", 1200))
-                        overlap  = int(step.get("overlap", 80))
-                        chunks = chunk_text(text, max_chars, overlap)
-                        tgt = step.get("to", "chunks")
-                        ctx["vars"][tgt] = chunks
-                        out = {"chunks": len(chunks)}
+            # دعم map: يكرّر خطوة واحدة على items
+            if raw_step.get("op") == "map":
+                items = raw_step.get("items", [])
+                base = raw_step.get("step", {})
+                mapped_out = []
+                for it in (items if isinstance(items, list) else []):
+                    payload = _subst(base, last)
+                    payload = _subst_item(payload, it)
+                    o = await self._call_step(payload)
+                    mapped_out.append(o)
+                last = mapped_out
+                timing_steps.append({"name": name, "op": "map", "elapsed_ms": round((time.time()-t0)*1000.0, 3)})
+                results.append({"name": name, "op": "map", "items_len": len(items), "out": mapped_out})
+                continue
 
-                    elif op == "when":
-                        cond = render_tmpl(step.get("if", ""), {**results, **ctx})
-                        truthy = bool(cond) and cond.lower() not in ("0", "false", "none")
-                        out = {"executed": False}
-                        if truthy:
-                            then_steps = step.get("then", [])
-                            sub = run_steps(then_steps)
-                            out = {"executed": True, "last": sub}
+            # خطوة عادية
+            payload = _subst(raw_step, last)
+            out = await self._call_step(payload)
+            last = out
+            timing_steps.append({"name": name, "op": "infer", "elapsed_ms": round((time.time()-t0)*1000.0, 3)})
+            results.append({"name": name, "op": "infer", "step": raw_step, "out": out})
 
-                    elif op == "foreach":
-                        src = step.get("in")
-                        items = pluck(ctx, f"vars.{src}") or pluck(results, src) or []
-                        body = step.get("do", [])
-                        collected = []
-                        for i, item in enumerate(items):
-                            ctx["vars"]["item"] = item
-                            ctx["vars"]["index"] = i
-                            sub = run_steps(body)
-                            collected.append(sub)
-                        tgt = step.get("to", "list")
-                        ctx["vars"][tgt] = collected
-                        out = {"count": len(collected)}
+        total_ms = round((time.time()-t_total0)*1000.0, 3)
+        return {"steps": results, "timing": {"elapsed_ms": total_ms, "steps": timing_steps}, "last": last}
 
-                    else:  # infer
-                        provider = step.get("provider")
-                        task = step.get("task")
-                        if not provider or not task:
-                            raise ValueError(f"step '{name}' missing provider/task")
+    async def infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        steps = payload.get("steps")
+        if not isinstance(steps, list) or not steps:
+            return {"provider": "workflow", "task": "run", "error": "steps[] is required"}
 
-                        payload_out = {}
+        # (اختياري) طباعة Debug لأسماء المزودين المتاحين
+        try:
+            meta = all_meta()
+            # يمكنك إزالة السطر التالي إن ما بدك ضجيج في اللوج:
+            print("[workflow] available providers:", sorted(meta.keys()))
+        except Exception:
+            pass
 
-                        # text من from أو من text مباشرة
-                        if "from" in step:
-                            payload_out["text"] = pluck(results, step["from"])
-                        if "text" in step:
-                            payload_out["text"] = render_tmpl(step["text"], {**results, **ctx})
-
-                        # params بعد templating
-                        params = render_obj(step.get("params", {}), {**results, **ctx})
-                        payload_out.update(params)
-
-                        # طباعة تتبّع قبل التنفيذ
-                        if DEBUG:
-                            txt_len = len(payload_out.get("text", "") or "") if isinstance(payload_out.get("text"), str) else "NA"
-                            print(f"[workflow {workflow_id}] -> {provider}:{task} | step={idx}/{len(seq)} | name={name} | text.len={txt_len}")
-
-                        out = infer_local(provider, task, payload_out)
-                        results[name] = out
-
-                    # تجميعة التتبع
-                    trace.append({"name": name, "op": op, "step": step, "out": out})
-
-                except Exception as e:
-                    out = {"error": str(e)}
-                    trace.append({"name": name, "op": op, "step": step, "out": out})
-                    if stop_on_error:
-                        e_ms = (perf_counter() - s0) * 1000
-                        step_timings.append({
-                            "name": name, "op": op, "started_at": s_started,
-                            "ended_at": utc_now_iso(), "elapsed_ms": round(e_ms, 1), "error": str(e)
-                        })
-                        if DEBUG:
-                            print(f"[workflow {workflow_id}] !! ERROR at {name}:{op} after {e_ms:.1f} ms -> {e}")
-                        return out
-
-                # زمن الخطوة
-                s_ms = (perf_counter() - s0) * 1000
-                step_timings.append({
-                    "name": name, "op": op,
-                    "started_at": s_started, "ended_at": utc_now_iso(),
-                    "elapsed_ms": round(s_ms, 1)
-                })
-                if DEBUG:
-                    print(f"[workflow {workflow_id}] <- {name}:{op} done in {s_ms:.1f} ms")
-
-            return trace[-1]["out"] if trace else {}
-
-        # نفّذ السلسلة
-        last = run_steps(steps)
-
-        ended_at = utc_now_iso()
-        total_ms = (perf_counter() - t0) * 1000
-        if DEBUG:
-            print(f"[workflow {workflow_id}] TOTAL {total_ms:.1f} ms")
-
-        # إخراج مختصر شائع إن وُجدت هذه الخطوات
-        outputs = {
-            "pdf_text": pluck(results, "pdf.output"),
-            "summary": pluck(results, "sum.summary"),
-            "sentiment": pluck(results, "cls.results.0"),
-            "translation_de": pluck(results, "de.output"),
-            "vars": ctx.get("vars", {})
-        }
-
-        return {
-            "provider": "workflow",
-            "task": "run",
-            "workflow_id": workflow_id,
-            "timing": {
-                "started_at": started_at,
-                "ended_at": ended_at,
-                "elapsed_ms": round(total_ms, 1),
-                "steps": step_timings
-            },
-            "outputs": outputs,
-            "steps": trace,
-            "last": last
-        }
+        result = await self._run(steps)
+        return {"provider": "workflow", "task": "run", **result}
