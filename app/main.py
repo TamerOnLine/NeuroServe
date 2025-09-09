@@ -1,37 +1,38 @@
 from __future__ import annotations
 
+# ====== Standard Library ======
 import json
+import logging
 import os
 import platform
-import time
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Literal
 
+# ====== Third-Party ======
 import psutil
 import torch
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+# ====== Local Application ======
 from .runtime import cuda_info, warmup, pick_device
 from .toy_model import load_model
 from .plugins.loader import discover, get, all_meta
-
-from fastapi.staticfiles import StaticFiles
-
 from app.routes.uploads import router as uploads_router
 
 
-from fastapi.encoders import jsonable_encoder
-
-import logging, uuid, time
-from fastapi import Request
-
 log = logging.getLogger("neuroserve")
+logging.basicConfig(level=logging.INFO)
+
 
 
 load_dotenv()  # Read .env file if it exists
@@ -113,15 +114,13 @@ def matmul(req: MatmulReq):
     x = torch.randn(n, n, device=dev)
     y = torch.randn(n, n, device=dev)
 
-    # synchronize only if actual device is CUDA
-    if hasattr(dev, "type") and dev.type == "cuda":
-        torch.cuda.synchronize()
+    _sync_if_cuda(dev)
     t0 = time.time()
     _ = x @ y
-    if hasattr(dev, "type") and dev.type == "cuda":
-        torch.cuda.synchronize()
+    _sync_if_cuda(dev)
 
     return {"n": n, "device": str(dev), "elapsed_sec": round(time.time() - t0, 4)}
+
 
 
 class InferReq(BaseModel):
@@ -134,12 +133,10 @@ def infer(req: InferReq):
     dev = DEVICE
     with torch.no_grad():
         x = torch.randn(req.batch, req.in_features, device=dev)
-        if hasattr(dev, "type") and dev.type == "cuda":
-            torch.cuda.synchronize()
+        _sync_if_cuda(dev)
         t0 = time.time()
         y = MODEL(x)
-        if hasattr(dev, "type") and dev.type == "cuda":
-            torch.cuda.synchronize()
+        _sync_if_cuda(dev)
 
     return {
         "batch": req.batch,
@@ -147,6 +144,7 @@ def infer(req: InferReq):
         "device": str(dev),
         "elapsed_sec": round(time.time() - t0, 4),
     }
+
 
 # --- JSON sanitization helpers ---
 def _to_jsonable(obj):
@@ -188,6 +186,11 @@ def _to_jsonable(obj):
         return str(obj)
     except Exception:
         return None
+    
+def _sync_if_cuda(dev):
+    if hasattr(dev, "type") and dev.type == "cuda":
+        torch.cuda.synchronize()
+
 
 
 
