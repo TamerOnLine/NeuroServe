@@ -1,4 +1,4 @@
-name: GPU Test
+name: GPU Test (Windows self-hosted)
 
 on:
   push:
@@ -6,10 +6,14 @@ on:
 
 jobs:
   test-gpu:
-    runs-on: [self-hosted, gpu]   # only self-hosted runner with GPU
+    runs-on: [self-hosted, gpu]   # Only on your GPU self-hosted runner
+    defaults:
+      run:
+        shell: cmd                # Important: avoid PowerShell (restricted by ExecutionPolicy)
+
     env:
-      DEVICE: "cuda:0"            # ensure app uses GPU
-      CI_LIGHT_MODE: "0"          # load models normally on GPU runner
+      DEVICE: cuda:0
+      CI_LIGHT_MODE: "0"          # On GPU we want to actually load the model
 
     steps:
       - uses: actions/checkout@v4
@@ -27,38 +31,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Start server
+      - name: Start server (background)
         run: |
-          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log --log-level info > server.log 2>&1 &
-          echo $! > uvicorn.pid
-          sleep 5
+          rem Start Uvicorn in the background using PowerShell, but bypass ExecutionPolicy only locally
+          powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command ^
+            "$p = Start-Process python -ArgumentList '-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8000','--no-access-log','--log-level','info' -PassThru; ^
+             Set-Content -Path uvicorn.pid -Value $p.Id; ^
+             Write-Host ('Started PID: ' + $p.Id)"
 
-      - name: Wait for /health
+      - name: Wait for /health (up to 180s)
         run: |
-          for i in {1..180}; do
-            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-              echo "Server is up "
-              exit 0
-            fi
-            echo "Waiting... ($i)"
-            sleep 1
-          done
-          echo "Server did not start "
-          cat server.log || true
-          exit 1
+          for /l %%I in (1,1,180) do (
+            curl -fsS http://127.0.0.1:8000/health >NUL 2>&1 && (
+              echo Server is up ✓
+              goto :ok
+            )
+            echo Waiting... (%%I)
+            timeout /t 1 /nobreak >NUL
+          )
+          echo Server did not start ✗
+          if exist server.log type server.log
+          exit /b 1
+          :ok
 
       - name: Run tests
-        run: |
-          python -m scripts.test_api
+        run: python -m scripts.test_api
 
       - name: Stop server
         if: always()
         run: |
-          if [ -f uvicorn.pid ]; then
-            kill $(cat uvicorn.pid) 2>/dev/null || true
-          fi
+          if exist uvicorn.pid (
+            for /f %%P in (uvicorn.pid) do taskkill /PID %%P /F >NUL 2>&1
+          )
 
-      - name: Upload logs (on failure)
+      - name: Upload server.log (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
