@@ -119,19 +119,17 @@ jobs:
             try {
               $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 3
               if ($r.StatusCode -eq 200) { $ok = $true; break }
-            } catch { Start-Sleep -Seconds 1 }
-            Write-Host "Waiting... ($i)"; Start-Sleep -Seconds 1
+            } catch {}
+            Write-Host "Waiting... ($i)"
+
+            if ($i % 15 -eq 0) {
+              if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 20 }
+              if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 20 }
+            }
+            Start-Sleep -Seconds 1
           }
-          if (-not $ok) {
-            Write-Host "Server did not start ❌"
-            if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
-            if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
-            exit 1
-          } else {
-            Write-Host "Server is up ✅"
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
-          }
+          if (-not $ok) { exit 1 }
+
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
