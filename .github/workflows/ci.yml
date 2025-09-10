@@ -23,20 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # إعداد كاش HF على Unix
+      # إعداد كاش HF على Unix (بدون TRANSFORMERS_CACHE لتفادي التحذير)
       - name: Set HF cache env (Unix)
         if: runner.os != 'Windows'
         run: |
           echo "HF_HOME=/tmp/hf-cache" >> $GITHUB_ENV
-          echo "TRANSFORMERS_CACHE=/tmp/hf-cache/transformers" >> $GITHUB_ENV
 
       # إعداد كاش HF على Windows
       - name: Set HF cache env (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          echo "HF_HOME=C:\hf-temp"            >> $env:GITHUB_ENV
-          echo "TRANSFORMERS_CACHE=C:\hf-temp\transformers" >> $env:GITHUB_ENV
+          echo "HF_HOME=C:\hf-temp" >> $env:GITHUB_ENV
 
       # تفريغ مساحة على Ubuntu
       - name: Free disk space (Linux only)
@@ -83,7 +81,8 @@ jobs:
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
-        run: python -m scripts.test_api
+        run: |
+          python -m scripts.test_api || { echo 'Tests failed ❌'; [ -f server.log ] && tail -n 200 server.log; exit 1; }
 
       - name: Stop server (Unix)
         if: always() && runner.os != 'Windows'
@@ -116,19 +115,7 @@ jobs:
         shell: pwsh
         run: |
           $ok = $false
-          $uvPid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
           for ($i=1; $i -le 300; $i++) {
-            
-            if ($uvPid) {
-              try { $proc = Get-Process -Id $uvPid -ErrorAction Stop } catch { $proc = $null }
-              if (-not $proc) {
-                Write-Host "Uvicorn process exited early ❌"
-                if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
-                if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
-                exit 1
-              }
-            }
-
             try {
               $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 3
               if ($r.StatusCode -eq 200) { $ok = $true; break }
@@ -145,7 +132,6 @@ jobs:
             try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
             try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
           }
-
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
@@ -171,11 +157,10 @@ jobs:
             if ($uvPid) { Stop-Process -Id $uvPid -Force -ErrorAction SilentlyContinue }
           }
 
-
       # ---------- Logs on failure ----------
       - name: Upload logs (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: logs-${{ matrix.os }}
           path: |
