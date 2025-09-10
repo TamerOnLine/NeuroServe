@@ -143,38 +143,34 @@ jobs:
         run: |
           python -V
           Set-Location "$env:PROJECT_DIR"
+          Write-Host "PROJECT_DIR = $env:PROJECT_DIR"
           Get-Location
+          Write-Host "Listing PROJECT_DIR:"; Get-ChildItem -Name
 
-          # Detect entrypoint using a temporary Python file (safe for YAML + PowerShell)
-          $pyDetect = @"
-          import importlib
-          def has(mod):
-          try:
-              m = importlib.import_module(mod)
-              return hasattr(m, "app")
-          except Exception:
-              return False
-          print("app.main" if has("app.main") else ("main" if has("main") else ""))
-          "@
-          $tmpDetect = New-TemporaryFile
-          Set-Content -Path $tmpDetect -Value $pyDetect -Encoding UTF8
-          $probe = (python $tmpDetect).Trim()
-          Remove-Item $tmpDetect -Force
-
-          if ($probe) {
-            $entry = "$probe:app"
-          } else {
-            Write-Error "Cannot import 'app.main' or 'main' (no 'app' object)."
+          # Decide module by files
+          $module = $null
+          if (Test-Path ".\app\main.py") { $module = "app.main" }
+          elseif (Test-Path ".\main.py")  { $module = "main" }
+          else {
+            Write-Error "Neither app/main.py nor main.py found in $env:PROJECT_DIR"
             exit 1
           }
+
+          # Verify module exposes `app` and ensure cwd is on sys.path
+          python -c "import sys,os,importlib; sys.path.insert(0, os.getcwd()); m=importlib.import_module('$module'); sys.exit(0 if hasattr(m,'app') else 3)"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Module '$module' does not expose attribute 'app'"
+            exit 1
+          }
+          $entry = "$module:app"
           Write-Host "Using entrypoint: $entry"
 
           # Prepare logs early
-          "" | Out-File server.out.log -Encoding utf8
-          "" | Out-File server.err.log -Encoding utf8
+          '' | Out-File server.out.log -Encoding utf8
+          '' | Out-File server.err.log -Encoding utf8
 
           # Ensure port 8000 is free
-          $busy = Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq 8000 -and $_.State -eq "Listen" }
+          $busy = Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -eq 8000 -and $_.State -eq 'Listen' }
           if ($busy) { Write-Error "Port 8000 is busy."; exit 1 }
 
           # Start Uvicorn in background
@@ -191,40 +187,41 @@ jobs:
           Write-Host "Started PID: $($p.Id)"
 
 
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Set-Location "$env:PROJECT_DIR"
-          # Check if scripts.test_api exists
-          $pyCheck = @"
-          import importlib.util, sys
-          sys.exit(0 if importlib.util.find_spec("scripts.test_api") else 1)
-          "@
-          $tmpCheck = New-TemporaryFile
-          Set-Content -Path $tmpCheck -Value $pyCheck -Encoding UTF8
-          python $tmpCheck
-          $exists = $LASTEXITCODE -eq 0
-          Remove-Item $tmpCheck -Force
 
-          $code = 0
-          if ($exists) {
-            python -m scripts.test_api
-            $code = $LASTEXITCODE
-          } else {
-            Write-Host "scripts.test_api not found, doing a light probe..."
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | Out-Null } catch { $code = 1 }
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | Out-Null } catch {}
-          }
+            - name: Run tests (Windows)
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                Set-Location "$env:PROJECT_DIR"
+                # Check if scripts.test_api exists
+                $pyCheck = @"
+                import importlib.util, sys
+                sys.exit(0 if importlib.util.find_spec("scripts.test_api") else 1)
+                "@
+                $tmpCheck = New-TemporaryFile
+                Set-Content -Path $tmpCheck -Value $pyCheck -Encoding UTF8
+                python $tmpCheck
+                $exists = $LASTEXITCODE -eq 0
+                Remove-Item $tmpCheck -Force
 
-          if ($code -ne 0) {
-            Write-Host "`nTests failed with exit code $code ❌"
-            if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
-            if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
-            exit $code
-          } else {
-            Write-Host "Tests passed ✅"
-          }
+                $code = 0
+                if ($exists) {
+                  python -m scripts.test_api
+                  $code = $LASTEXITCODE
+                } else {
+                  Write-Host "scripts.test_api not found, doing a light probe..."
+                  try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | Out-Null } catch { $code = 1 }
+                  try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | Out-Null } catch {}
+                }
+
+                if ($code -ne 0) {
+                  Write-Host "`nTests failed with exit code $code ❌"
+                  if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
+                  if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
+                  exit $code
+                } else {
+                  Write-Host "Tests passed ✅"
+                }
 
       - name: Stop server (Windows)
         if: always() && runner.os == 'Windows'
