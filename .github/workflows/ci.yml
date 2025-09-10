@@ -17,10 +17,32 @@ jobs:
 
     env:
       DEVICE: "cpu"
-      CI_LIGHT_MODE: "1"              # ⬅️ مهم: لا تحمّل الموديلات الثقيلة في CI
+      CI_LIGHT_MODE: "1"
 
     steps:
       - uses: actions/checkout@v4
+
+      # إعداد كاش HF على Unix
+      - name: Set HF cache env (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          echo "HF_HOME=/tmp/hf-cache" >> $GITHUB_ENV
+          echo "TRANSFORMERS_CACHE=/tmp/hf-cache/transformers" >> $GITHUB_ENV
+
+      # إعداد كاش HF على Windows
+      - name: Set HF cache env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "HF_HOME=C:\hf-temp"            >> $env:GITHUB_ENV
+          echo "TRANSFORMERS_CACHE=C:\hf-temp\transformers" >> $env:GITHUB_ENV
+
+      # تفريغ مساحة على Ubuntu
+      - name: Free disk space (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+          df -h
 
       - uses: actions/setup-python@v5
         with:
@@ -28,11 +50,16 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install fastapi uvicorn[standard]
+          fi
 
-      # ---------- Linux/macOS ----------
+      # ---------- Unix (Linux/macOS) ----------
       - name: Start server (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -55,8 +82,7 @@ jobs:
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
-        run: |
-          python -m scripts.test_api
+        run: python -m scripts.test_api
 
       - name: Stop server (Unix)
         if: always() && runner.os != 'Windows'
@@ -106,8 +132,7 @@ jobs:
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          python -m scripts.test_api
+        run: python -m scripts.test_api
 
       - name: Stop server (Windows)
         if: always() && runner.os == 'Windows'
@@ -115,11 +140,8 @@ jobs:
         run: |
           if (Test-Path uvicorn.pid) {
             $uvPid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
-            if ($uvPid) {
-              Stop-Process -Id $uvPid -Force -ErrorAction SilentlyContinue
-            }
+            if ($uvPid) { Stop-Process -Id $uvPid -Force -ErrorAction SilentlyContinue }
           }
-
 
       # ---------- Logs on failure ----------
       - name: Upload logs (on failure)
@@ -132,4 +154,3 @@ jobs:
             server.out.log
             server.err.log
           if-no-files-found: ignore
-
