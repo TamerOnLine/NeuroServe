@@ -116,11 +116,11 @@ jobs:
         shell: pwsh
         run: |
           $ok = $false
-          $pid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
+          $uvPid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
           for ($i=1; $i -le 300; $i++) {
-            # إذا ماتت العملية نوقف فورًا ونطبع اللوجات
-            if ($pid) {
-              try { $proc = Get-Process -Id $pid -ErrorAction Stop } catch { $proc = $null }
+            
+            if ($uvPid) {
+              try { $proc = Get-Process -Id $uvPid -ErrorAction Stop } catch { $proc = $null }
               if (-not $proc) {
                 Write-Host "Uvicorn process exited early ❌"
                 if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
@@ -142,10 +142,10 @@ jobs:
             exit 1
           } else {
             Write-Host "Server is up ✅"
-            # اطبع /health و /plugins للتأكيد
             try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
             try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
           }
+
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
