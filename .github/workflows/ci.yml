@@ -25,6 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ---------- Detect the project root (folder that contains app/main.py) ----------
+      - name: Detect project root
+        id: proj
+        shell: bash
+        run: |
+          set -e
+          ROOT="$(dirname "$(git ls-files | grep -E '(^|/)app/main\.py$' | head -n1)")"
+          if [ -z "$ROOT" ]; then
+            echo "app/main.py not found anywhere in the repo." >&2
+            exit 1
+          fi
+          [ "$ROOT" = "." ] && ROOT="."
+          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
+          echo "Detected PROJECT_DIR=$ROOT"
+
       # ---------- HF cache ----------
       - name: Set HF cache env (Unix)
         if: runner.os != 'Windows'
@@ -51,9 +66,12 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
+          set -e
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
+          elif [ -f "$PROJECT_DIR/requirements.txt" ]; then
+            pip install -r "$PROJECT_DIR/requirements.txt"
           else
             pip install fastapi "uvicorn>=0.30"
           fi
@@ -65,6 +83,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           set -e
+          cd "$PROJECT_DIR"
           nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log --log-level info > server.log 2>&1 &
           echo $! > uvicorn.pid
           echo "Started PID: $(cat uvicorn.pid)"
@@ -72,13 +91,14 @@ jobs:
       - name: Wait for /health (Unix, up to 180s)
         if: runner.os != 'Windows'
         run: |
+          cd "$PROJECT_DIR"
           for i in {1..180}; do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
               echo "Server is up ✅"; exit 0
             fi
             echo "Waiting... ($i)"; sleep 1
-            if [ $((i % 15)) -eq 0 ]; then
-              [ -f server.log ] && { echo; echo "--- server.log (tail) ---"; tail -n 40 server.log; }
+            if [ $((i % 15)) -eq 0 ] && [ -f server.log ]; then
+              echo; echo "--- server.log (tail) ---"; tail -n 40 server.log
             fi
           done
           echo "Server did not start ❌"
@@ -88,6 +108,7 @@ jobs:
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         run: |
+          cd "$PROJECT_DIR"
           set +e
           if python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('scripts.test_api') else 1)"; then
             python -m scripts.test_api
@@ -107,6 +128,7 @@ jobs:
       - name: Stop server (Unix)
         if: always() && runner.os != 'Windows'
         run: |
+          cd "$PROJECT_DIR"
           if [ -f uvicorn.pid ]; then
             kill $(cat uvicorn.pid) 2>/dev/null || true
           fi
@@ -114,22 +136,24 @@ jobs:
       # =========================
       # ======= WINDOWS =========
       # =========================
+
       - name: Start server (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           python -V
+          Set-Location "$env:PROJECT_DIR"
           Get-Location
 
           # Detect entrypoint using a temporary Python file (safe for YAML + PowerShell)
           $pyDetect = @"
           import importlib
           def has(mod):
-              try:
-                  m = importlib.import_module(mod)
-                  return hasattr(m, "app")
-              except Exception:
-                  return False
+          try:
+              m = importlib.import_module(mod)
+              return hasattr(m, "app")
+          except Exception:
+              return False
           print("app.main" if has("app.main") else ("main" if has("main") else ""))
           "@
           $tmpDetect = New-TemporaryFile
@@ -160,61 +184,18 @@ jobs:
             "--no-access-log","--log-level","info"
           )
           $p = Start-Process -FilePath "python" -ArgumentList $args `
-               -NoNewWindow -PassThru `
-               -RedirectStandardOutput "server.out.log" `
-               -RedirectStandardError  "server.err.log"
+              -NoNewWindow -PassThru `
+              -RedirectStandardOutput "server.out.log" `
+              -RedirectStandardError  "server.err.log"
           $p.Id | Out-File -FilePath uvicorn.pid -Encoding ascii
           Write-Host "Started PID: $($p.Id)"
 
-      - name: Wait for /health (Windows, up to 300s)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ok = $false
-          $pid = (Test-Path uvicorn.pid) ? (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() } | Select-Object -First 1) : $null
-
-          for ($i=1; $i -le 300; $i++) {
-            # If process died early, dump logs now
-            if ($pid) {
-              try {
-                $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-                if (-not $proc) {
-                  Write-Host "Process exited early at ~${i}s"
-                  if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
-                  if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
-                  exit 1
-                }
-              } catch {}
-            }
-
-            try {
-              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 3
-              if ($r.StatusCode -eq 200) { $ok = $true; break }
-            } catch {}
-
-            Write-Host "Waiting... ($i)"
-            if ($i % 15 -eq 0) {
-              if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 40 }
-              if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 40 }
-            }
-            Start-Sleep -Seconds 1
-          }
-
-          if (-not $ok) {
-            Write-Host "Server did not start ❌"
-            if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
-            if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
-            exit 1
-          } else {
-            Write-Host "Server is up ✅"
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
-            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
-          }
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          Set-Location "$env:PROJECT_DIR"
           # Check if scripts.test_api exists
           $pyCheck = @"
           import importlib.util, sys
@@ -249,19 +230,20 @@ jobs:
         if: always() && runner.os == 'Windows'
         shell: pwsh
         run: |
+          Set-Location "$env:PROJECT_DIR"
           if (Test-Path uvicorn.pid) {
             $uvPid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
             if ($uvPid) { Stop-Process -Id $uvPid -Force -ErrorAction SilentlyContinue }
           }
 
-      # ---------- Artifacts on failure ----------
+      # ---------- Upload logs on failure ----------
       - name: Upload logs (on failure)
         if: failure()
         uses: actions/upload-artifact@v4.3.1
         with:
           name: logs-${{ matrix.os }}
           path: |
-            server.log
-            server.out.log
-            server.err.log
+            **/server.log
+            **/server.out.log
+            **/server.err.log
           if-no-files-found: ignore
