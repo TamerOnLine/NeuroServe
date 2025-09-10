@@ -17,6 +17,7 @@ jobs:
 
     env:
       DEVICE: "cpu"
+      CI_LIGHT_MODE: "1"              # ⬅️ مهم: لا تحمّل الموديلات الثقيلة في CI
 
     steps:
       - uses: actions/checkout@v4
@@ -35,51 +36,89 @@ jobs:
       - name: Start server (Unix)
         if: runner.os != 'Windows'
         run: |
-          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log --log-level info > server.log 2>&1 &
           echo $! > uvicorn.pid
+          echo "Started PID: $(cat uvicorn.pid)"
 
-      - name: Wait for /health (Unix)
+      - name: Wait for /health (Unix, up to 180s)
         if: runner.os != 'Windows'
         run: |
-          for i in {1..30}; do
+          for i in {1..180}; do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-              echo "Server is up"; exit 0
+              echo "Server is up ✅"; exit 0
             fi
             echo "Waiting... ($i)"; sleep 1
           done
-          echo "Server did not start"; cat server.log || true; exit 1
+          echo "Server did not start ❌"
+          [ -f server.log ] && tail -n 200 server.log || true
+          exit 1
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
-        run: python -m scripts.test_api
+        run: |
+          python -m scripts.test_api
+
+      - name: Stop server (Unix)
+        if: always() && runner.os != 'Windows'
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill $(cat uvicorn.pid) 2>/dev/null || true
+          fi
 
       # ---------- Windows ----------
       - name: Start server (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process -FilePath "python" -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8000" -NoNewWindow
+          $p = Start-Process -FilePath "python" -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8000","--no-access-log","--log-level","info" -NoNewWindow -PassThru
+          $p.Id | Out-File -FilePath uvicorn.pid -Encoding ascii
+          "Started PID: $($p.Id)"
 
-      - name: Wait for /health (Windows)
+      - name: Wait for /health (Windows, up to 180s)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ok = $false
-          for ($i=1; $i -le 30; $i++) {
+          for ($i=1; $i -le 180; $i++) {
             try {
               $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing -TimeoutSec 2
               if ($r.StatusCode -eq 200) { $ok = $true; break }
-            } catch { Start-Sleep -Seconds 1 }
+            } catch {
+              Start-Sleep -Seconds 1
+            }
             Write-Host "Waiting... ($i)"
             Start-Sleep -Seconds 1
           }
           if (-not $ok) {
-            Write-Host "Server did not start. Showing logs:"
+            Write-Host "Server did not start ❌"
             if (Test-Path server.log) { Get-Content server.log -TotalCount 200 }
             exit 1
+          } else {
+            Write-Host "Server is up ✅"
           }
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: python -m scripts.test_api
+        run: |
+          python -m scripts.test_api
+
+      - name: Stop server (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path uvicorn.pid) {
+            $pid = Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }
+            if ($pid) {
+              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      # ---------- Logs on failure ----------
+      - name: Upload server.log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log-${{ matrix.os }}
+          path: server.log
+          if-no-files-found: ignore

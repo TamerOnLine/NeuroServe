@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import uuid
+import threading  # ✅ جديد
 from pathlib import Path
 from typing import Literal
 
@@ -28,7 +29,7 @@ from .toy_model import load_model
 from .plugins.loader import discover, get, all_meta
 from app.routes.uploads import router as uploads_router
 
-# (اختياري) إن كنت قد أضفت أداة التوحيد
+# (اختياري) unify
 try:
     from app.utils.unify import unify_response
     _HAS_UNIFY = True
@@ -42,7 +43,6 @@ load_dotenv()  # Read .env file if it exists
 
 app = FastAPI(title="gpu_server", version="0.1.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
 app.include_router(uploads_router)
 
 ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1", "true", "yes")
@@ -50,7 +50,6 @@ ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1", "true", "yes")
 if ENABLE_TRACE:
     @app.middleware("http")
     async def tracing_middleware(request: Request, call_next):
-        # تجاهل الأصول الثابتة لتقليل الضجيج
         path = request.url.path
         if path.startswith("/static") or path.startswith("/plugins-data"):
             return await call_next(request)
@@ -58,7 +57,6 @@ if ENABLE_TRACE:
         req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = req_id
         method = request.method
-
         t0 = time.perf_counter()
         log.info(f"[req {req_id}] -> {method} {path}")
 
@@ -79,24 +77,35 @@ BASE_DIR = os.path.dirname(__file__)
 plugins_dir = os.path.join(BASE_DIR, "plugins")
 app.mount("/plugins-data", StaticFiles(directory=plugins_dir), name="plugins-data")
 
+# ✅ CI flag
+CI_LIGHT_MODE = os.getenv("CI_LIGHT_MODE", "0").lower() in ("1", "true", "yes")
 
-@app.get("/plugins")
-def list_plugins():
-    """قائمة المزودين المتاحين (من المجلد plugins/*)."""
-    meta = all_meta()            # dict: name -> manifest/meta
-    names = sorted(meta.keys())  # ['bart','clip','resnet18','tinyllama', ...]
-    return {"plugins": names, "meta": meta}
+
+def _load_heavy():
+    """Load heavy model + warmup in background"""
+    global MODEL
+    MODEL, _ = load_model()
+    wr = warmup()
+    print("[gpu_server] Warmup:", wr)
 
 
 @app.on_event("startup")
 def _startup():
-    """Single startup hook: choose device, load toy model, warm up, discover plugins."""
+    """Choose device, discover plugins quickly, and (optionally) load heavy stuff."""
     global MODEL, DEVICE
     DEVICE = pick_device()
-    MODEL, _ = load_model()
-    warmup_result = warmup()
-    discover(reload=True)  # load plugins once at startup
-    print("[gpu_server] Warmup:", warmup_result)
+    discover(reload=True)  # fast
+    if CI_LIGHT_MODE:
+        print("[gpu_server] CI_LIGHT_MODE=on (skip heavy load)")
+    else:
+        threading.Thread(target=_load_heavy, daemon=True).start()
+
+
+@app.get("/plugins")
+def list_plugins():
+    meta = all_meta()
+    names = sorted(meta.keys())
+    return {"plugins": names, "meta": meta}
 
 
 @app.get("/health")
@@ -162,31 +171,25 @@ def _to_jsonable(obj):
 
     if obj is None:
         return None
-    # numpy scalars
     if np is not None and isinstance(obj, (np.generic,)):
         return obj.item()
-    # numpy arrays
     if np is not None and hasattr(obj, "dtype") and hasattr(obj, "shape"):
         try:
             return obj.tolist()
         except Exception:
             return str(obj)
-    # torch tensors
     if _torch is not None and hasattr(obj, "detach") and hasattr(obj, "cpu"):
         try:
             return obj.detach().cpu().tolist()
         except Exception:
             return str(obj)
-    # dict / list / tuple / set
     if isinstance(obj, dict):
         return {k: _to_jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple, set)):
         t = type(obj)
         return t(_to_jsonable(v) for v in obj)
-    # plain types
     if isinstance(obj, (str, int, float, bool)):
         return obj
-    # fallback
     try:
         return str(obj)
     except Exception:
@@ -196,6 +199,11 @@ def _to_jsonable(obj):
 def _sync_if_cuda(dev):
     if hasattr(dev, "type") and dev.type == "cuda":
         torch.cuda.synchronize()
+
+
+# باقي الـendpoints (env, inference, unified, templates...) مثل ملفك السابق
+# لم ألمسها.
+
 
 
 # --- helpers: env/info endpoints ---

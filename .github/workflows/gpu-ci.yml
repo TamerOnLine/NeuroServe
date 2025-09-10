@@ -1,12 +1,67 @@
 name: GPU Test
+
 on:
   push:
   workflow_dispatch:
 
 jobs:
   test-gpu:
-    runs-on: [self-hosted, gpu]   # فقط هدول!
+    runs-on: [self-hosted, gpu]   # only self-hosted runner with GPU
+    env:
+      DEVICE: "cuda:0"            # ensure app uses GPU
+      CI_LIGHT_MODE: "0"          # load models normally on GPU runner
+
     steps:
       - uses: actions/checkout@v4
-      - name: Show GPU
+
+      - name: Show GPU info
         run: nvidia-smi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start server
+        run: |
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log --log-level info > server.log 2>&1 &
+          echo $! > uvicorn.pid
+          sleep 5
+
+      - name: Wait for /health
+        run: |
+          for i in {1..180}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              echo "Server is up "
+              exit 0
+            fi
+            echo "Waiting... ($i)"
+            sleep 1
+          done
+          echo "Server did not start "
+          cat server.log || true
+          exit 1
+
+      - name: Run tests
+        run: |
+          python -m scripts.test_api
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill $(cat uvicorn.pid) 2>/dev/null || true
+          fi
+
+      - name: Upload logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log-gpu
+          path: server.log
+          if-no-files-found: ignore
