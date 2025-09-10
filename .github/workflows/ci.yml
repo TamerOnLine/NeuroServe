@@ -18,6 +18,7 @@ jobs:
     env:
       DEVICE: "cpu"
       CI_LIGHT_MODE: "1"
+      PLUGINS_ALLOW: "dummy"
 
     steps:
       - uses: actions/checkout@v4
@@ -101,24 +102,38 @@ jobs:
             "--host","127.0.0.1","--port","8000",
             "--no-access-log","--log-level","info"
           )
+          if (Test-Path server.out.log) { Remove-Item server.out.log -Force }
+          if (Test-Path server.err.log) { Remove-Item server.err.log -Force }
+
           $p = Start-Process -FilePath "python" -ArgumentList $args -NoNewWindow `
               -RedirectStandardOutput "server.out.log" `
               -RedirectStandardError  "server.err.log" -PassThru
           $p.Id | Out-File -FilePath uvicorn.pid -Encoding ascii
           "Started PID: $($p.Id)"
 
-      - name: Wait for /health (Windows, up to 180s)
+      - name: Wait for /health (Windows, up to 300s)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ok = $false
-          for ($i=1; $i -le 180; $i++) {
+          $pid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
+          for ($i=1; $i -le 300; $i++) {
+            # إذا ماتت العملية نوقف فورًا ونطبع اللوجات
+            if ($pid) {
+              try { $proc = Get-Process -Id $pid -ErrorAction Stop } catch { $proc = $null }
+              if (-not $proc) {
+                Write-Host "Uvicorn process exited early ❌"
+                if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
+                if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
+                exit 1
+              }
+            }
+
             try {
-              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 2
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 3
               if ($r.StatusCode -eq 200) { $ok = $true; break }
             } catch { Start-Sleep -Seconds 1 }
-            Write-Host "Waiting... ($i)"
-            Start-Sleep -Seconds 1
+            Write-Host "Waiting... ($i)"; Start-Sleep -Seconds 1
           }
           if (-not $ok) {
             Write-Host "Server did not start ❌"
@@ -127,12 +142,25 @@ jobs:
             exit 1
           } else {
             Write-Host "Server is up ✅"
+            # اطبع /health و /plugins للتأكيد
+            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
+            try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/plugins" -TimeoutSec 5 | ConvertTo-Json -Depth 5 | Write-Host } catch {}
           }
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: python -m scripts.test_api
+        run: |
+          python -m scripts.test_api
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "`nTests failed with exit code $code ❌"
+            if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
+            if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
+            exit $code
+          } else {
+            Write-Host "Tests passed ✅"
+          }
 
       - name: Stop server (Windows)
         if: always() && runner.os == 'Windows'
@@ -142,6 +170,7 @@ jobs:
             $uvPid = (Get-Content uvicorn.pid | ForEach-Object { $_.Trim() }) | Select-Object -First 1
             if ($uvPid) { Stop-Process -Id $uvPid -Force -ErrorAction SilentlyContinue }
           }
+
 
       # ---------- Logs on failure ----------
       - name: Upload logs (on failure)
