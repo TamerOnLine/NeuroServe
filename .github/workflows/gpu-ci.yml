@@ -1,11 +1,15 @@
 name: GPU CI (Windows self-hosted)
 
 on:
+  push:
+    branches:
+      - main
+      - 'releases/**'
   workflow_dispatch:
 
 # define secret once (top-level)
 env:
-  GPU_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GPU_API_TOKEN: ${{ secrets.GPU_API_TOKEN }}
 
 jobs:
   test-gpu:
