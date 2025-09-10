@@ -4,12 +4,8 @@ on:
   push:
     branches:
       - main
-      - 'releases/**'
+      - "releases/**"
   workflow_dispatch:
-
-# define secret once (top-level)
-env:
-  GPU_API_TOKEN: ${{ secrets.GPU_API_TOKEN }}
 
 jobs:
   test-gpu:
@@ -40,14 +36,19 @@ jobs:
       - name: Show runner & GPU info
         shell: pwsh
         run: |
-          $PSVersionTable
-          if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { nvidia-smi } else { Write-Host "nvidia-smi not found" }
+          $PSVersionTable | Format-List
+          if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+            nvidia-smi
+          } else {
+            Write-Host "nvidia-smi not found"
+          }
 
-      - name: Install Python dependencies (FastAPI, Uvicorn, Torch CUDA)
+      - name: Install Python deps (FastAPI, Uvicorn, Torch CUDA)
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install fastapi uvicorn[standard]
+          # NOTE: cu121 assumes a driver compatible with CUDA 12.1; change if needed (e.g., cu118)
           pip install --index-url https://download.pytorch.org/whl/cu121 torch
 
       - name: Torch CUDA sanity check
@@ -65,8 +66,7 @@ jobs:
       - name: Run Uvicorn locally (background) and probe /health
         shell: pwsh
         run: |
-          $token = $env:GPU_API_TOKEN
-
+          # Start Uvicorn in the background on localhost
           $args = @(
             "-m","uvicorn","app.main:app",
             "--host","127.0.0.1",
@@ -75,26 +75,20 @@ jobs:
             "--log-level","info"
           )
           $p = Start-Process -FilePath python -ArgumentList $args -PassThru
-          Start-Sleep -Seconds 6
+          Start-Sleep -Seconds 10
 
-          $Headers = @{}
-          if ($token) { $Headers["Authorization"] = "Bearer $token" }
+          # Call open /health (no auth required)
+          Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -TimeoutSec 20 | Format-List
 
-          $resp = Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -Headers $Headers -TimeoutSec 20
-          $resp | Format-List
-
+          # Stop server
           if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force }
 
       - name: (Optional) Probe /matmul
         if: always()
         shell: pwsh
         run: |
-          $token = $env:GPU_API_TOKEN
-          $Headers = @{}
-          if ($token) { $Headers["Authorization"] = "Bearer $token" }
-
           try {
-            Invoke-RestMethod -Uri "http://127.0.0.1:8000/matmul" -Method POST -Headers $Headers `
+            Invoke-RestMethod -Uri "http://127.0.0.1:8000/matmul" -Method POST `
               -ContentType "application/json" -Body '{"n":1024}' | Format-List
           } catch {
             Write-Host "Skipping /matmul (endpoint may not exist)."
