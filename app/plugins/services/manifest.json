@@ -1,0 +1,10 @@
+{
+  "name": "services",
+  "title": "Services Monitor",
+  "type": "Utility",
+  "version": "1.0",
+  "author": "TamerOnLine",
+  "license": "MIT",
+  "tasks": ["list"],
+  "description": "Provides dynamic information about all plugins/services running on the server"
+}
