@@ -76,7 +76,8 @@ jobs:
             "--no-access-log","--log-level","info"
           )
           $p = Start-Process -FilePath "python" -ArgumentList $args -NoNewWindow `
-              -RedirectStandardOutput "server.log" -RedirectStandardError "server.log" -PassThru
+              -RedirectStandardOutput "server.out.log" `
+              -RedirectStandardError  "server.err.log" -PassThru
           $p.Id | Out-File -FilePath uvicorn.pid -Encoding ascii
           "Started PID: $($p.Id)"
 
@@ -89,15 +90,14 @@ jobs:
             try {
               $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 2
               if ($r.StatusCode -eq 200) { $ok = $true; break }
-            } catch {
-              Start-Sleep -Seconds 1
-            }
+            } catch { Start-Sleep -Seconds 1 }
             Write-Host "Waiting... ($i)"
             Start-Sleep -Seconds 1
           }
           if (-not $ok) {
             Write-Host "Server did not start ❌"
-            if (Test-Path server.log) { Get-Content server.log -Tail 200 }
+            if (Test-Path server.out.log) { Write-Host "`n--- server.out.log (tail) ---"; Get-Content server.out.log -Tail 200 }
+            if (Test-Path server.err.log) { Write-Host "`n--- server.err.log (tail) ---"; Get-Content server.err.log -Tail 200 }
             exit 1
           } else {
             Write-Host "Server is up ✅"
@@ -120,11 +120,16 @@ jobs:
             }
           }
 
+
       # ---------- Logs on failure ----------
-      - name: Upload server.log (on failure)
+      - name: Upload logs (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: server-log-${{ matrix.os }}
-          path: server.log
+          name: logs-${{ matrix.os }}
+          path: |
+            server.log
+            server.out.log
+            server.err.log
           if-no-files-found: ignore
+
