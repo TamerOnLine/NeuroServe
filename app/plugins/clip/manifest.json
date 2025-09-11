@@ -1,12 +1,5 @@
 {
   "provider": "clip",
   "task": "embed-text",
-  "model": "openai/clip-vit-base-patch32",
-  "device": "cuda:0",
-  "dim": 512,
-  "normalized": true,
-  "embedding": [
-    0.0121, -0.0078, 0.0315, 0.0042, -0.0189, 0.0227, -0.0093, 0.0056,
-    "... 504 more floats ..."
-  ]
+  "text": "A cat sitting on a chair"
 }
