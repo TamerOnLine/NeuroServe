@@ -32,13 +32,18 @@ def test_cuda_info():
     assert "device_count" in body or "cuda" in body
 
 
-def test_matmul():
-    body = get_json("/matmul", method="post", json={"n": 512})
-    assert isinstance(body, dict)
+# scripts/test_api_extra.py
+def test_infer(client):
+    resp = client.post("/infer", json={"text": "hello world"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["echo"] == "hello world"
+
+
+def test_matmul(client):
+    resp = client.post("/matmul?n=128")
+    assert resp.status_code == 200
+    body = resp.json()
     assert "elapsed_ms" in body
-
-
-def test_infer():
-    body = get_json("/infer", method="post", json={"text": "hello world"})
-    assert isinstance(body, dict)
-    assert "task" in body or "output" in body
+    assert body["device"] in ("cpu", "cuda")
