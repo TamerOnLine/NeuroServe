@@ -101,6 +101,7 @@ jobs:
 
       - name: Job summary
         if: always()
+        shell: bash
         run: |
           echo "### PyTest on ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
           [ -f pytest.xml ] && echo "- JUnit: uploaded" >> $GITHUB_STEP_SUMMARY
