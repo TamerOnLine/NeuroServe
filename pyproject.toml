@@ -1,0 +1,39 @@
+# Minimal project-wide config (no packaging metadata)
+# If you later publish to PyPI, you can add [project] and [build-system] sections.
+
+[tool.ruff]
+# Python target used for linting/formatting decisions
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# E (pycodestyle errors), F (pyflakes), I (import sorting via Ruff's isort)
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.ruff.lint.isort]
+# Treat 'app' as first-party to sort imports correctly
+known-first-party = ["app"]
+combine-as-imports = true
+
+[tool.ruff.format]
+# Black-like formatting without needing Black
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+addopts = "-q -r fEsxX --maxfail=1 --disable-warnings"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
