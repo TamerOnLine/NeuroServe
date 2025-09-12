@@ -3,7 +3,10 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Framework-green)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI (CPU, 3 OS)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-3os.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-3os.yml)
+[![CI (Linux)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-linux.yml)
+[![CI (macOS)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-macos.yml)
+[![CI (Windows)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-windows.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-windows.yml)
+
 [![CI (GPU, self-hosted)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml)
 
 
