@@ -1,0 +1,9 @@
+# Development dependencies
+
+# Linting & formatting
+ruff
+
+# Testing & coverage
+pytest
+pytest-cov
+coverage
