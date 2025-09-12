@@ -6,8 +6,7 @@
 [![CI (Linux)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-linux.yml)
 [![CI (macOS)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-macos.yml)
 [![CI (Windows)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-windows.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/ci-windows.yml)
-
-[![CI (GPU, self-hosted)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml)
+[![GPU CI (Windows self-hosted)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml/badge.svg)](https://github.com/TamerOnLine/NeuroServe/actions/workflows/gpu-ci.yml)
 
 
 A lightweight **REST API server** powered by **FastAPI** & **PyTorch**.  
