@@ -1,3 +1,4 @@
+import os
 import time
 
 import torch
@@ -29,18 +30,26 @@ def cuda_info_alias():
 
 @router.post("/matmul")
 def matmul(n: int = 1024):
-    """Matrix multiplication test for performance benchmarking."""
-    if not torch.cuda.is_available():
-        return {"error": "CUDA not available"}
+    """Matrix multiplication test for performance benchmarking (CUDA or CPU fallback)."""
+    force_cpu = os.getenv("FORCE_CPU", "0") == "1"
+    use_cuda = torch.cuda.is_available() and not force_cpu
+    device = torch.device("cuda" if use_cuda else "cpu")
 
-    device = "cuda"
     a = torch.rand((n, n), device=device)
     b = torch.rand((n, n), device=device)
 
-    torch.cuda.synchronize()
+    if use_cuda:
+        torch.cuda.synchronize()
     t0 = time.time()
-    _ = torch.matmul(a, b)
-    torch.cuda.synchronize()
+    with torch.no_grad():
+        torch.matmul(a, b)
+    if use_cuda:
+        torch.cuda.synchronize()
     t1 = time.time()
 
-    return {"n": n, "elapsed_ms": round((t1 - t0) * 1000, 3), "device": device}
+    return {
+        "n": n,
+        "elapsed_ms": round((t1 - t0) * 1000, 3),
+        "device": str(device),
+        "cuda": use_cuda,
+    }
