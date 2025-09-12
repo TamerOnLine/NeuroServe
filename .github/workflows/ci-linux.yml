@@ -56,23 +56,21 @@ jobs:
           pip -V
           uname -a
 
-      - name: Install dev dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements-dev.txt ]; then
-            python -m pip install -r requirements-dev.txt
-          fi
-
-      - name: "Install project deps (auto-detect: pip/uv/poetry)"
+      # Install production + dev dependencies with auto-detect
+      - name: Install dependencies (prod + dev) with auto-detect
         run: |
           set -eo pipefail
+          python -m pip install --upgrade pip
           export PYTHONPATH="$GITHUB_WORKSPACE:$PYTHONPATH"
 
           if [ -f "uv.lock" ] || grep -qi 'tool\.uv' pyproject.toml 2>/dev/null; then
             echo "[deps] Using uv"
             python -m pip install uv
-            uv pip install -r requirements.txt 2>/dev/null || true
-            uv pip install -e . 2>/dev/null || true
+            if [ -f requirements.txt ]; then uv pip install -r requirements.txt; fi
+            if [ -f requirements-dev.txt ]; then uv pip install -r requirements-dev.txt; fi
+            if [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then
+              uv pip install -e .
+            fi
 
           elif [ -f "poetry.lock" ]; then
             echo "[deps] Using poetry"
@@ -85,10 +83,15 @@ jobs:
           else
             echo "[deps] Using pip"
             if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+            if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
             if [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then
               python -m pip install -e .
             fi
           fi
+
+      # Ensure httpx is always installed for FastAPI TestClient
+      - name: Ensure httpx for TestClient
+        run: python -m pip install httpx
 
       - name: Lint (ruff)
         run: |

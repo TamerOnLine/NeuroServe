@@ -1,9 +1,19 @@
-# Development dependencies
+# requirements-dev.txt
+# Development & Testing dependencies for NeuroServe
 
-# Linting & formatting
-ruff
-
-# Testing & coverage
+# --- Testing ---
 pytest
 pytest-cov
-coverage
+httpx             # required for fastapi.testclient
+
+# --- Linting & Formatting ---
+ruff              # linting & import sorting
+pre-commit        # git hooks to enforce code style
+
+# --- Typing (اختياري, للتأكد من الأنواع) ---
+mypy
+types-requests    # typing stubs for requests
+types-PyYAML      # typing stubs for yaml if مستخدم
+
+# --- Utilities ---
+coverage          # standalone coverage reporting
