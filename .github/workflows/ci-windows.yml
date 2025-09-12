@@ -6,10 +6,11 @@ on:
 
 env:
   
+  FORCE_CPU: "1"
+  
   HF_HOME: 'C:\models_cache\hf'
   TORCH_HOME: 'C:\models_cache\torch'
   TRANSFORMERS_CACHE: 'C:\models_cache\hf'
-  FORCE_CPU: "1"
 
 jobs:
   tests:
@@ -24,11 +25,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Prepare caches
+      - name: Prepare HF cache dirs
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path $env:HF_HOME | Out-Null
           New-Item -ItemType Directory -Force -Path $env:TORCH_HOME | Out-Null
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Cache model files (HF/Torch)
         uses: actions/cache@v4
@@ -44,18 +53,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install pre-commit pytest httpx uvicorn ruff
 
-      - name: Install dependencies (PEP621/Poetry/req)
+      - name: Install dependencies (Poetry / PEP621 / requirements)
         shell: powershell
         run: |
-          if (Test-Path "pyproject.toml" -and (Select-String -Path "pyproject.toml" -Pattern "\[tool.poetry\]" -Quiet)) {
+          if ( (Test-Path "pyproject.toml") -and (Select-String -Path "pyproject.toml" -Pattern '\[tool.poetry\]' -Quiet) ) {
             pip install poetry
             poetry config virtualenvs.create false
             poetry install --no-interaction --no-root
-          } elseif (Test-Path "pyproject.toml") {
+          }
+          elseif (Test-Path "pyproject.toml") {
             pip install -e ".[dev]" 2>$null
             if (Test-Path "requirements-dev.txt") { pip install -r requirements-dev.txt }
             if (Test-Path "requirements.txt")     { pip install -r requirements.txt }
-          } else {
+          }
+          else {
             if (Test-Path "requirements-dev.txt") { pip install -r requirements-dev.txt }
             if (Test-Path "requirements.txt")     { pip install -r requirements.txt }
           }
