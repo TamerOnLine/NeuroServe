@@ -5,9 +5,7 @@ on:
   pull_request:
 
 env:
-  
   FORCE_CPU: "1"
-  
   HF_HOME: 'C:\models_cache\hf'
   TORCH_HOME: 'C:\models_cache\torch'
   TRANSFORMERS_CACHE: 'C:\models_cache\hf'
@@ -25,7 +23,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Prepare HF cache dirs
+      - name: Prepare caches
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path $env:HF_HOME | Out-Null
@@ -56,13 +54,31 @@ jobs:
       - name: Install dependencies (Poetry / PEP621 / requirements)
         shell: powershell
         run: |
-          if ( (Test-Path "pyproject.toml") -and (Select-String -Path "pyproject.toml" -Pattern '\[tool.poetry\]' -Quiet) ) {
+          $ErrorActionPreference = 'Stop'
+
+          # هل المشروع يستخدم Poetry؟
+          $usesPoetry = (Test-Path "pyproject.toml") -and (Select-String -Path "pyproject.toml" -Pattern '\[tool\.poetry\]' -Quiet)
+
+          if ($usesPoetry) {
             pip install poetry
             poetry config virtualenvs.create false
-            poetry install --no-interaction --no-root
+
+            # هل عندك group dev في Poetry؟
+            $hasDevGroup = (Select-String -Path "pyproject.toml" -Pattern '^\s*\[tool\.poetry\.group\.dev\]' -Quiet)
+            if ($hasDevGroup) {
+              poetry install --no-interaction --no-root --with dev
+            } else {
+              poetry install --no-interaction --no-root
+            }
           }
           elseif (Test-Path "pyproject.toml") {
-            pip install -e ".[dev]" 2>$null
+            # مشروع PEP621: هل يوجد extra 'dev' فعلاً؟
+            $hasDevExtra = python -c "import tomllib,sys; from pathlib import Path as P; d=tomllib.loads(P('pyproject.toml').read_text('utf-8')); print('1' if d.get('project',{}).get('optional-dependencies',{}).get('dev') else '0')"
+            if ($hasDevExtra -eq '1') {
+              pip install -e ".[dev]"
+            } else {
+              pip install -e "."
+            }
             if (Test-Path "requirements-dev.txt") { pip install -r requirements-dev.txt }
             if (Test-Path "requirements.txt")     { pip install -r requirements.txt }
           }
@@ -75,12 +91,12 @@ jobs:
         shell: powershell
         run: pre-commit run --all-files
 
-      
       - name: Run tests (fast path)
         shell: powershell
         env:
           PYTEST_ADDOPTS: "-q --maxfail=1"
         run: |
+          $ErrorActionPreference = 'Continue'
           pytest
           if ($LASTEXITCODE -ne 0) {
             pytest -k "not slow"
