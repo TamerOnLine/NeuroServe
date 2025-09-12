@@ -1,0 +1,69 @@
+name: CI (macOS)
+
+on:
+  push:
+  pull_request:
+
+env:
+  FORCE_CPU: "1"
+  HF_HOME: ${{ github.workspace }}/models_cache/hf
+  TORCH_HOME: ${{ github.workspace }}/models_cache/torch
+  TRANSFORMERS_CACHE: ${{ github.workspace }}/models_cache/hf
+
+jobs:
+  tests:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Cache model files (HF/Torch)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.HF_HOME }}
+            ${{ env.TORCH_HOME }}
+          key: models-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/poetry.lock', '**/requirements*.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "pyproject.toml" ] && grep -q "\[tool.poetry\]" pyproject.toml; then
+            pip install poetry
+            poetry config virtualenvs.create false
+            poetry install --no-interaction --no-root
+          elif [ -f "pyproject.toml" ]; then
+            pip install -e ".[dev]" || true
+            [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+            [ -f requirements.txt ] && pip install -r requirements.txt
+          else
+            [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+            [ -f requirements.txt ] && pip install -r requirements.txt
+          fi
+          pip install pre-commit pytest httpx uvicorn ruff
+
+      - name: Lint & format (pre-commit)
+        run: pre-commit run --all-files
+
+      - name: Run tests (fast path)
+        env:
+          PYTEST_ADDOPTS: "-q --maxfail=1"
+        run: |
+          pytest || pytest -k "not slow"
+
+      - name: Upload pytest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report-macos
+          path: |
+            **/pytest.xml
+            **/.pytest_cache
+          if-no-files-found: ignore
