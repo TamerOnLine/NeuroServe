@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import time
-from typing import List, Union
+from typing import List
 
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device
 
@@ -20,9 +22,9 @@ class Plugin(AIPlugin):
         use_fp16 = False and getattr(self.dev, "type", "") == "cuda"
         dtype = torch.float16 if use_fp16 else torch.float32
 
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name
-        ).to(self.dev, dtype=dtype).eval()
+        self.model = (
+            AutoModelForSequenceClassification.from_pretrained(self.model_name).to(self.dev, dtype=dtype).eval()
+        )
 
         # حفظ خريطة التصنيفات إن توفرت
         self.id2label = getattr(self.model.config, "id2label", {0: "NEGATIVE", 1: "POSITIVE"})
@@ -58,15 +60,16 @@ class Plugin(AIPlugin):
         for i, p in enumerate(probs):
             score, idx = torch.max(p, dim=-1)
             label = self.id2label.get(idx.item(), str(idx.item()))
-            results.append({
-                "text": texts[i],
-                "label": label.lower(),
-                "confidence": round(score.item() * 100, 2),
-                "probs": {
-                    self.id2label.get(j, str(j)).lower(): round(p_j.item() * 100, 2)
-                    for j, p_j in enumerate(p)
+            results.append(
+                {
+                    "text": texts[i],
+                    "label": label.lower(),
+                    "confidence": round(score.item() * 100, 2),
+                    "probs": {
+                        self.id2label.get(j, str(j)).lower(): round(p_j.item() * 100, 2) for j, p_j in enumerate(p)
+                    },
                 }
-            })
+            )
 
         return {
             "task": "text-classify",

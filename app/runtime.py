@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import os
 import time
 from pathlib import Path
+
 import torch
 
 # --- مسارات كاش ديناميكية داخل المشروع ---
@@ -16,6 +18,7 @@ os.environ.setdefault("TRANSFORMERS_CACHE", str(HF_HOME / "hub"))
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 DEVICE = os.getenv("DEVICE", "cuda:0")
+
 
 def pick_device() -> torch.device:
     """Pick a valid device based on DEVICE env; respect 'cpu' even if CUDA exists."""
@@ -34,6 +37,7 @@ def pick_device() -> torch.device:
         except Exception:
             return torch.device("cuda:0")
     return torch.device("cpu")
+
 
 def pick_dtype(device: str | None = None) -> torch.dtype:
     """
@@ -54,6 +58,7 @@ def pick_dtype(device: str | None = None) -> torch.dtype:
         return torch.float16
     return torch.float32
 
+
 def cuda_info() -> dict:
     """Retrieve CUDA device information."""
     info = {
@@ -66,13 +71,16 @@ def cuda_info() -> dict:
         dev = pick_device()
         idx = dev.index or 0
         props = torch.cuda.get_device_properties(idx)
-        info.update({
-            "gpu_name": props.name,
-            "total_memory_gb": round(props.total_memory / (1024 ** 3), 2),
-            "device_index": idx,
-            "driver": getattr(torch.cuda, "driver_version", None),
-        })
+        info.update(
+            {
+                "gpu_name": props.name,
+                "total_memory_gb": round(props.total_memory / (1024**3), 2),
+                "device_index": idx,
+                "driver": getattr(torch.cuda, "driver_version", None),
+            }
+        )
     return info
+
 
 def warmup() -> dict:
     """Run a small matrix multiplication on the selected device."""

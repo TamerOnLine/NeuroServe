@@ -1,11 +1,17 @@
 from __future__ import annotations
-import io, time, requests
-from PIL import Image
+
+import io
+import time
+
+import requests
 import torch
 import torch.nn.functional as F
+from PIL import Image
 from torchvision import models
+
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device
+
 
 class Plugin(AIPlugin):
     tasks = ["classify"]
@@ -35,11 +41,13 @@ class Plugin(AIPlugin):
 
         # تحضير + استدلال
         x = self.preprocess(img).unsqueeze(0).to(self.dev)
-        if torch.cuda.is_available(): torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         t0 = time.time()
         with torch.no_grad():
             logits = self.model(x)
-        if torch.cuda.is_available(): torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         probs = F.softmax(logits, dim=1)[0]
         p, idx = probs.topk(topk)

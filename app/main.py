@@ -7,9 +7,9 @@ import os
 import platform
 import subprocess
 import sys
+import threading  # ✅ جديد
 import time
 import uuid
-import threading  # ✅ جديد
 from pathlib import Path
 from typing import Literal
 
@@ -23,15 +23,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-# ====== Local Application ======
-from .runtime import cuda_info, warmup, pick_device
-from .toy_model import load_model
-from .plugins.loader import discover, get, all_meta
 from app.routes.uploads import router as uploads_router
+
+from .plugins.loader import all_meta, discover, get
+
+# ====== Local Application ======
+from .runtime import cuda_info, pick_device, warmup
+from .toy_model import load_model
 
 # (اختياري) unify
 try:
     from app.utils.unify import unify_response
+
     _HAS_UNIFY = True
 except Exception:
     _HAS_UNIFY = False
@@ -48,6 +51,7 @@ app.include_router(uploads_router)
 ENABLE_TRACE = os.getenv("TRACE_HTTP", "1").lower() in ("1", "true", "yes")
 
 if ENABLE_TRACE:
+
     @app.middleware("http")
     async def tracing_middleware(request: Request, call_next):
         path = request.url.path
@@ -64,10 +68,9 @@ if ENABLE_TRACE:
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
         response.headers["X-Request-ID"] = req_id
-        log.info(
-            f"[req {req_id}] <- {method} {path} | {response.status_code} | {elapsed_ms:.1f} ms"
-        )
+        log.info(f"[req {req_id}] <- {method} {path} | {response.status_code} | {elapsed_ms:.1f} ms")
         return response
+
 
 # Global model and device
 MODEL = None
@@ -205,7 +208,6 @@ def _sync_if_cuda(dev):
 # لم ألمسها.
 
 
-
 # --- helpers: env/info endpoints ---
 @app.get("/env")
 def env(request: Request, pretty: bool = False):
@@ -233,7 +235,7 @@ def env_full(request: Request, pretty: bool = False):
                 {
                     "index": i,
                     "name": p.name,
-                    "total_memory_gb": round(p.total_memory / (1024 ** 3), 2),
+                    "total_memory_gb": round(p.total_memory / (1024**3), 2),
                 }
             )
     info.update(
@@ -263,7 +265,7 @@ def env_system(request: Request, pretty: bool = False):
         "machine": platform.machine(),
         "processor": platform.processor(),
         "cpu_count": os.cpu_count(),
-        "ram_gb": round(psutil.virtual_memory().total / (1024 ** 3), 2),
+        "ram_gb": round(psutil.virtual_memory().total / (1024**3), 2),
     }
     if pretty:
         return Response(
@@ -490,8 +492,8 @@ def api_model_size(
     bytes_per = {"fp32": 4, "fp16": 2, "bf16": 2, "fp64": 8}.get(dtype, 4)
     weights = in_features * hidden + hidden * out_features
     memory_bytes = weights * bytes_per
-    mem_mb = memory_bytes / (1024 ** 2)
-    mem_gb = memory_bytes / (1024 ** 3)
+    mem_mb = memory_bytes / (1024**2)
+    mem_gb = memory_bytes / (1024**3)
 
     if mem_gb >= 1.0 or weights >= 50_000_000:
         recommendation = "GPU recommended"

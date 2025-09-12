@@ -1,13 +1,14 @@
 from __future__ import annotations
-import time, traceback
-from typing import List
 
-import torch
-from transformers import CLIPProcessor, CLIPModel
-from PIL import Image
-import requests
+import time
+import traceback
 from io import BytesIO
 from pathlib import Path
+
+import requests
+import torch
+from PIL import Image
+from transformers import CLIPModel, CLIPProcessor
 
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device, pick_dtype
@@ -21,11 +22,11 @@ class Plugin(AIPlugin):
         self.model_name = "openai/clip-vit-base-patch32"
 
         self.processor = CLIPProcessor.from_pretrained(self.model_name)
-        self.model = CLIPModel.from_pretrained(
-            self.model_name,
-            low_cpu_mem_usage=True,
-            dtype=pick_dtype(str(self.dev))
-        ).to(self.dev).eval()
+        self.model = (
+            CLIPModel.from_pretrained(self.model_name, low_cpu_mem_usage=True, dtype=pick_dtype(str(self.dev)))
+            .to(self.dev)
+            .eval()
+        )
 
         print("[plugin] clip loaded on", self.dev)
 
@@ -91,7 +92,7 @@ class Plugin(AIPlugin):
                 "device": str(self.dev),
                 "model": self.model_name,
                 "output": out,
-                "elapsed_sec": elapsed
+                "elapsed_sec": elapsed,
             }
 
         except Exception as e:

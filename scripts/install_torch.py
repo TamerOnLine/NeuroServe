@@ -11,11 +11,20 @@ Env:
   DEVICE=cuda:0 -> prefer GPU
   DEVICE=cpu    -> force CPU
 """
+
 from __future__ import annotations
-import argparse, os, subprocess, sys, shutil, platform
+
+import argparse
+import os
+import platform
+import shutil
+import subprocess
+import sys
+
 
 def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
+
 
 def has_nvidia() -> bool:
     try:
@@ -26,15 +35,18 @@ def has_nvidia() -> bool:
     except Exception:
         return False
 
+
 def has_rocm() -> bool:
     # Heuristics: rocminfo or hipcc presence
     return have("rocminfo") or have("hipcc")
+
 
 def pip_install(args: list[str]) -> int:
     print("\n$ " + " ".join([sys.executable, "-m", "pip"] + args))
     return subprocess.call([sys.executable, "-m", "pip"] + args)
 
-def decide_channel(force_gpu: bool|None, force_cpu: bool|None, force_rocm: bool|None) -> tuple[str, list[str]]:
+
+def decide_channel(force_gpu: bool | None, force_cpu: bool | None, force_rocm: bool | None) -> tuple[str, list[str]]:
     # pkgs common
     pkgs = ["torch", "torchvision", "torchaudio"]
 
@@ -64,6 +76,7 @@ def decide_channel(force_gpu: bool|None, force_cpu: bool|None, force_rocm: bool|
     # macOS: default wheel (MPS is inside torch for mac)
     return "macOS default (CPU wheel, MPS inside)", ["install"] + pkgs
 
+
 def main():
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group()
@@ -76,6 +89,7 @@ def main():
     # already installed?
     try:
         import importlib
+
         torch = importlib.import_module("torch")
         print(f"PyTorch already installed: {torch.__version__}")
         try:
@@ -102,6 +116,7 @@ def main():
 
     try:
         import torch
+
         print(f"✅ Installed torch {torch.__version__}")
         try:
             print("CUDA available?", torch.cuda.is_available())
@@ -113,6 +128,7 @@ def main():
     except Exception as e:
         print("⚠️ Installed but cannot import torch:", e)
         return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,17 +1,19 @@
 # app/routes/uploads.py
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
-from typing import Optional, List
 import io
 
 # Text processing imports
 import re
+from typing import List, Optional
+
+import numpy as np
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 
 # Image processing imports
 from PIL import Image
-import numpy as np
 
 router = APIRouter(prefix="/upload", tags=["upload"])
+
 
 # ---- Helpers ----
 def clean_text(text: str) -> str:
@@ -26,17 +28,20 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+
 def summarize_text_simple(text: str, max_sentences: int = 3) -> str:
     """Very tiny 'post-processing' summarizer: take first N sentences. (No ML dependency)"""
     # naive split by punctuation
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return " ".join(sentences[:max_sentences]).strip()
 
+
 def load_image_bytes(img_bytes: bytes) -> Image.Image:
     try:
         return Image.open(io.BytesIO(img_bytes)).convert("RGB")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
+
 
 def preprocess_image(img: Image.Image, size: int = 224) -> Image.Image:
     """Resize & center-crop to square 'size'."""
@@ -50,6 +55,7 @@ def preprocess_image(img: Image.Image, size: int = 224) -> Image.Image:
     img = img.resize((size, size))
     return img
 
+
 def image_to_numpy(img: Image.Image) -> List[List[List[int]]]:
     """Convert to nested list (uint8) just for returning small previews."""
     arr = np.array(img, dtype=np.uint8)
@@ -57,6 +63,7 @@ def image_to_numpy(img: Image.Image) -> List[List[List[int]]]:
     if arr.shape[0] > 256 or arr.shape[1] > 256:
         arr = arr[:256, :256, :]
     return arr.tolist()
+
 
 # ---- Endpoints ----
 @router.post("/text")
@@ -84,6 +91,7 @@ async def upload_text(
     pre = clean_text(content)
     post = summarize_text_simple(pre, max_sentences) if summarize else pre
     return JSONResponse({"ok": True, "length": len(pre), "preview": post[:1000], "summarized": summarize})
+
 
 @router.post("/image")
 async def upload_image(

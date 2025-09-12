@@ -1,16 +1,21 @@
+import inspect
+import time
 from typing import Any, Dict, List, Optional
-import time, inspect
 
 try:
     from app.plugins.base import AIPlugin
 except Exception:
+
     class AIPlugin:
         tasks: List[str] = []
+
         def load(self, *_, **__): ...
         async def infer(self, payload: Dict[str, Any]): ...
 
+
 # ✅ نستخدم الريجستري العالمي من loader.py كـ fallback
-from app.plugins.loader import get as get_plugin, all_meta
+from app.plugins.loader import all_meta, get as get_plugin
+
 
 def _deep_get(obj: Any, path: str, default: Any = "") -> Any:
     if not isinstance(path, str) or not path:
@@ -23,6 +28,7 @@ def _deep_get(obj: Any, path: str, default: Any = "") -> Any:
             return default
     return cur
 
+
 def _subst(obj: Any, last: Any) -> Any:
     """
     استبدال المتغيّرات البسيطة المعتمدة على نتيجة الخطوة السابقة:
@@ -31,6 +37,7 @@ def _subst(obj: Any, last: Any) -> Any:
       - {{last.summary}}
       - {{last}}
     """
+
     def rep(s: str) -> str:
         if not isinstance(s, str):
             return s
@@ -44,6 +51,7 @@ def _subst(obj: Any, last: Any) -> Any:
         if "{{last}}" in out:
             out = out.replace("{{last}}", "" if last is None else str(last))
         return out
+
     if isinstance(obj, dict):
         return {k: _subst(v, last) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -52,12 +60,15 @@ def _subst(obj: Any, last: Any) -> Any:
         return rep(obj)
     return obj
 
+
 def _subst_item(obj: Any, item: Any) -> Any:
     """
     استبدال {{item}} عند استخدام op=map
     """
+
     def rep(s: str) -> str:
         return s.replace("{{item}}", str(item)) if isinstance(s, str) else s
+
     if isinstance(obj, dict):
         return {k: _subst_item(v, item) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -65,6 +76,7 @@ def _subst_item(obj: Any, item: Any) -> Any:
     if isinstance(obj, str):
         return rep(obj)
     return obj
+
 
 class Plugin(AIPlugin):
     tasks = ["run"]
@@ -115,7 +127,8 @@ class Plugin(AIPlugin):
         return None
 
     async def _call_step(self, step_payload: Dict[str, Any]) -> Any:
-        prov = step_payload.get("provider"); task = step_payload.get("task")
+        prov = step_payload.get("provider")
+        task = step_payload.get("task")
         if not prov or not task:
             return {"error": "provider/task missing", "step": step_payload}
         plugin = self._get_plugin(prov)
@@ -133,7 +146,7 @@ class Plugin(AIPlugin):
         t_total0 = time.time()
 
         for idx, raw_step in enumerate(steps):
-            name = f"step{idx+1}"
+            name = f"step{idx + 1}"
             t0 = time.time()
 
             # دعم map: يكرّر خطوة واحدة على items
@@ -141,13 +154,13 @@ class Plugin(AIPlugin):
                 items = raw_step.get("items", [])
                 base = raw_step.get("step", {})
                 mapped_out = []
-                for it in (items if isinstance(items, list) else []):
+                for it in items if isinstance(items, list) else []:
                     payload = _subst(base, last)
                     payload = _subst_item(payload, it)
                     o = await self._call_step(payload)
                     mapped_out.append(o)
                 last = mapped_out
-                timing_steps.append({"name": name, "op": "map", "elapsed_ms": round((time.time()-t0)*1000.0, 3)})
+                timing_steps.append({"name": name, "op": "map", "elapsed_ms": round((time.time() - t0) * 1000.0, 3)})
                 results.append({"name": name, "op": "map", "items_len": len(items), "out": mapped_out})
                 continue
 
@@ -155,10 +168,10 @@ class Plugin(AIPlugin):
             payload = _subst(raw_step, last)
             out = await self._call_step(payload)
             last = out
-            timing_steps.append({"name": name, "op": "infer", "elapsed_ms": round((time.time()-t0)*1000.0, 3)})
+            timing_steps.append({"name": name, "op": "infer", "elapsed_ms": round((time.time() - t0) * 1000.0, 3)})
             results.append({"name": name, "op": "infer", "step": raw_step, "out": out})
 
-        total_ms = round((time.time()-t_total0)*1000.0, 3)
+        total_ms = round((time.time() - t_total0) * 1000.0, 3)
         return {"steps": results, "timing": {"elapsed_ms": total_ms, "steps": timing_steps}, "last": last}
 
     async def infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,8 +1,14 @@
 from __future__ import annotations
-import time, torch, traceback
+
+import time
+import traceback
+
+import torch
 from transformers import AutoTokenizer, BartForConditionalGeneration
+
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device, pick_dtype
+
 
 class Plugin(AIPlugin):
     tasks = ["summarize"]
@@ -19,7 +25,7 @@ class Plugin(AIPlugin):
         self.model = BartForConditionalGeneration.from_pretrained(
             self.model_name,
             low_cpu_mem_usage=True,
-            dtype=pick_dtype(str(self.dev))   # استبدال torch_dtype بـ dtype
+            dtype=pick_dtype(str(self.dev)),  # استبدال torch_dtype بـ dtype
         ).to(self.dev)
 
         # warmup خفيف لتسريع أول نداء
@@ -35,8 +41,8 @@ class Plugin(AIPlugin):
             return_tensors="pt",
             truncation=True,
             max_length=1024,
-            return_attention_mask=True,   # لإزالة تحذير attention mask
-            padding=False
+            return_attention_mask=True,  # لإزالة تحذير attention mask
+            padding=False,
         ).to(self.dev)
 
         with torch.no_grad():
@@ -48,7 +54,7 @@ class Plugin(AIPlugin):
                 num_beams=4 if not do_sample else 1,
                 length_penalty=2.0,
                 early_stopping=True,
-                no_repeat_ngram_size=3
+                no_repeat_ngram_size=3,
             )
         return self.tokenizer.decode(out_ids[0], skip_special_tokens=True)
 
@@ -77,11 +83,7 @@ class Plugin(AIPlugin):
                 torch.cuda.synchronize()
 
             # تقدير الطول بشكل متوافق دائمًا (بدون return_length)
-            enc_ids = self.tokenizer(
-                text,
-                add_special_tokens=True,
-                truncation=False
-            )["input_ids"]
+            enc_ids = self.tokenizer(text, add_special_tokens=True, truncation=False)["input_ids"]
             truncated = len(enc_ids) > 1024
 
             return {
@@ -90,27 +92,16 @@ class Plugin(AIPlugin):
                 "model": self.model_name,
                 "input_chars": len(text),
                 "truncated_to_1024_tokens": bool(truncated),
-                "params": {
-                    "max_length": max_length,
-                    "min_length": min_length,
-                    "do_sample": do_sample
-                },
+                "params": {"max_length": max_length, "min_length": min_length, "do_sample": do_sample},
                 "summary": summary,
-                "elapsed_sec": round(time.time() - t0, 3)
+                "elapsed_sec": round(time.time() - t0, 3),
             }
 
         except RuntimeError as e:
             if "CUDA out of memory" in str(e):
                 if self.dev.type == "cuda":
                     torch.cuda.empty_cache()
-                return {
-                    "task": "summarize",
-                    "error": "CUDA OOM — جرّب تقليل max_length أو شغّل على CPU"
-                }
+                return {"task": "summarize", "error": "CUDA OOM — جرّب تقليل max_length أو شغّل على CPU"}
             return {"task": "summarize", "error": str(e)}
         except Exception as e:
-            return {
-                "task": "summarize",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            }
+            return {"task": "summarize", "error": str(e), "traceback": traceback.format_exc()}

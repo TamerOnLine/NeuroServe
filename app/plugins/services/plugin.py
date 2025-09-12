@@ -1,8 +1,13 @@
 from __future__ import annotations
-import psutil, torch, traceback
-from typing import Dict, Any
+
+import traceback
+
+import psutil
+import torch
+
 from app.plugins.base import AIPlugin
-from app.plugins.loader import discover, all_meta, get
+from app.plugins.loader import all_meta, discover, get
+
 
 class Plugin(AIPlugin):
     tasks = ["list"]
@@ -28,12 +33,12 @@ class Plugin(AIPlugin):
                     continue
 
                 # Metadata from manifest (with defaults)
-                title   = info.get("title")   or info.get("name") or name
-                ptype   = info.get("type")    or "unknown"
-                ver     = info.get("version") or "N/A"
-                author  = info.get("author")  or "N/A"
+                title = info.get("title") or info.get("name") or name
+                ptype = info.get("type") or "unknown"
+                ver = info.get("version") or "N/A"
+                author = info.get("author") or "N/A"
                 license = info.get("license") or "N/A"
-                tasks   = getattr(plugin, "tasks", []) if plugin else []
+                tasks = getattr(plugin, "tasks", []) if plugin else []
 
                 # Device formatting
                 dev = None
@@ -44,33 +49,30 @@ class Plugin(AIPlugin):
                         idx = getattr(d, "index", 0)
                         dev = f"cuda:{idx}"
 
-                services.append({
-                    "name": name,
-                    "title": title,
-                    "type":  ptype,
-                    "status": "running" if plugin else "not_loaded",
-                    "device": dev if plugin else None,
-                    "loaded": plugin is not None,
-                    "version": ver,
-                    "author": author,
-                    "license": license,
-                    "tasks": tasks,
-                    "resources": {
-                        "cpu_percent": psutil.cpu_percent(),
-                        "ram_mb": int(psutil.virtual_memory().used / 1e6),
-                        "gpu_memory_mb": (
-                            int(torch.cuda.memory_allocated(0) / 1e6)
-                            if torch.cuda.is_available() else 0
-                        )
-                    },
-                    "endpoint": f"/plugins/{name}/infer"
-                })
+                services.append(
+                    {
+                        "name": name,
+                        "title": title,
+                        "type": ptype,
+                        "status": "running" if plugin else "not_loaded",
+                        "device": dev if plugin else None,
+                        "loaded": plugin is not None,
+                        "version": ver,
+                        "author": author,
+                        "license": license,
+                        "tasks": tasks,
+                        "resources": {
+                            "cpu_percent": psutil.cpu_percent(),
+                            "ram_mb": int(psutil.virtual_memory().used / 1e6),
+                            "gpu_memory_mb": (
+                                int(torch.cuda.memory_allocated(0) / 1e6) if torch.cuda.is_available() else 0
+                            ),
+                        },
+                        "endpoint": f"/plugins/{name}/infer",
+                    }
+                )
 
             return {"task": "list", "services": services}
 
         except Exception as e:
-            return {
-                "task": "list",
-                "error": str(e),
-                "traceback": traceback.format_exc()
-            }
+            return {"task": "list", "error": str(e), "traceback": traceback.format_exc()}

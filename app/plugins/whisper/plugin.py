@@ -1,16 +1,18 @@
 from __future__ import annotations
+
 import time
+import traceback
 from pathlib import Path
 from urllib.parse import urlparse
-import traceback
-import requests
+
 import numpy as np
+import requests
 import torch
 import torchaudio
 
 # ملاحظة: set_audio_backend متوقّفة في torchaudio → لا داعي لاستدعائها
-
 from transformers import AutoProcessor, WhisperForConditionalGeneration
+
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device, pick_dtype
 
@@ -25,11 +27,15 @@ class Plugin(AIPlugin):
 
         # استخدم dtype الحديث واختره تلقائيًا حسب الجهاز
         dtype = pick_dtype(str(self.dev))
-        self.model = WhisperForConditionalGeneration.from_pretrained(
-            self.model_name,
-            low_cpu_mem_usage=True,
-            dtype=dtype,
-        ).to(self.dev).eval()
+        self.model = (
+            WhisperForConditionalGeneration.from_pretrained(
+                self.model_name,
+                low_cpu_mem_usage=True,
+                dtype=dtype,
+            )
+            .to(self.dev)
+            .eval()
+        )
 
         # warmup خفيف مع توحيد dtype للمدخلات العائمة فقط
         try:
@@ -37,7 +43,8 @@ class Plugin(AIPlugin):
             inputs = self.processor(audio=dummy, sampling_rate=16000, return_tensors="pt")
             inputs = {
                 k: (
-                    v.to(self.dev, dtype=self.model.dtype) if (torch.is_tensor(v) and v.is_floating_point())
+                    v.to(self.dev, dtype=self.model.dtype)
+                    if (torch.is_tensor(v) and v.is_floating_point())
                     else (v.to(self.dev) if torch.is_tensor(v) else v)
                 )
                 for k, v in inputs.items()
@@ -55,6 +62,7 @@ class Plugin(AIPlugin):
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+
     def _load_audio_16k_mono(self, path: Path, max_seconds: int = 600):
         """
         يرجّع waveform 1D @16kHz float32.
@@ -63,7 +71,6 @@ class Plugin(AIPlugin):
         - يضمن النطاق [-1, 1]
         - يقتطع الملفات الطويلة إلى `max_seconds` (افتراضي 10 دقائق)
         """
-        import math
 
         def _to_mono(w: torch.Tensor) -> torch.Tensor:
             # [C, N] → [1, N]
@@ -81,11 +88,13 @@ class Plugin(AIPlugin):
             # 2) soundfile (لو متوفّر)
             try:
                 import soundfile as sf
+
                 data, sr = sf.read(str(path), dtype="float32", always_2d=True)  # [N, C]
                 waveform = torch.from_numpy(data).permute(1, 0)  # [C, N]
             except Exception:
                 # 3) wave (WAV PCM فقط)
                 import wave
+
                 with wave.open(str(path), "rb") as wf:
                     sr = wf.getframerate()
                     n = wf.getnframes()
@@ -139,7 +148,6 @@ class Plugin(AIPlugin):
 
         return waveform, sr
 
-
     def infer(self, payload: dict) -> dict:
         audio_ref = payload.get("audio_url") or payload.get("input")
         if not audio_ref:
@@ -152,7 +160,7 @@ class Plugin(AIPlugin):
             if not p.exists() and parsed.scheme not in ("http", "https"):
                 return {
                     "task": "speech-to-text",
-                    "error": f"Expected audio file path or URL, got plain text: {audio_ref}"
+                    "error": f"Expected audio file path or URL, got plain text: {audio_ref}",
                 }
 
         # خيارات اختيارية
@@ -179,7 +187,8 @@ class Plugin(AIPlugin):
             inputs = self.processor(audio=mono.numpy(), sampling_rate=sr, return_tensors="pt")
             inputs = {
                 k: (
-                    v.to(self.dev, dtype=self.model.dtype) if (torch.is_tensor(v) and v.is_floating_point())
+                    v.to(self.dev, dtype=self.model.dtype)
+                    if (torch.is_tensor(v) and v.is_floating_point())
                     else (v.to(self.dev) if torch.is_tensor(v) else v)
                 )
                 for k, v in inputs.items()

@@ -1,8 +1,13 @@
 from __future__ import annotations
-import torch, time
+
+import time
+
+import torch
+
 from app.plugins.base import AIPlugin
 from app.runtime import pick_device
 from app.toy_model import TinyNet
+
 
 class Plugin(AIPlugin):
     tasks = ["infer"]
@@ -19,10 +24,12 @@ class Plugin(AIPlugin):
         in_features = 512
         with torch.no_grad():
             x = torch.randn(batch, in_features, device=self.dev)
-            if torch.cuda.is_available(): torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             t0 = time.time()
             y = self.model(x)
-            if torch.cuda.is_available(): torch.cuda.synchronize()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         return {
             "task": "infer",
             "device": str(self.dev),

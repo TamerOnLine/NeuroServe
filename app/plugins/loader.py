@@ -1,12 +1,18 @@
 from __future__ import annotations
-import importlib.util, json, os, pathlib, traceback
-from typing import Dict, Any, Tuple
+
+import importlib.util
+import json
+import pathlib
+import traceback
+from typing import Any, Dict, Tuple
+
 from .base import AIPlugin
 
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parent
 
 _registry: Dict[str, AIPlugin] = {}
 _meta: Dict[str, Dict[str, Any]] = {}
+
 
 def _load_manifest(folder: pathlib.Path) -> Dict[str, Any]:
     mf = folder / "manifest.json"
@@ -16,6 +22,7 @@ def _load_manifest(folder: pathlib.Path) -> Dict[str, Any]:
         except Exception:
             pass
     return {}
+
 
 def _load_module(folder: pathlib.Path):
     mod_path = folder / "plugin.py"
@@ -27,6 +34,7 @@ def _load_module(folder: pathlib.Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore
     return module
+
 
 def discover(reload: bool = False) -> Tuple[Dict[str, AIPlugin], Dict[str, Dict[str, Any]]]:
     """Scan plugins/* and load each plug-in with its manifest."""
@@ -62,8 +70,10 @@ def discover(reload: bool = False) -> Tuple[Dict[str, AIPlugin], Dict[str, Dict[
             print(f"[plugin] failed to load '{name}':\n{traceback.format_exc()}")
     return _registry, _meta
 
+
 def get(name: str) -> AIPlugin | None:
     return _registry.get(name)
+
 
 def all_meta() -> Dict[str, Dict[str, Any]]:
     return _meta

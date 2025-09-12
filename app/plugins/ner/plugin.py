@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-from typing import List, Literal, Optional, Any, Dict
-from pydantic import BaseModel, Field
+import traceback
+from typing import Any, Dict, List, Literal, Optional
+
 import torch
-from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 from fastapi import HTTPException
+from pydantic import BaseModel, Field
+from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline
+
 
 # ====== طلب/استجابة ======
 class NERRequest(BaseModel):
@@ -13,12 +16,14 @@ class NERRequest(BaseModel):
     aggregation: Literal["simple", "none", "first", "average", "max"] = "simple"
     model_override: Optional[str] = None
 
+
 class Entity(BaseModel):
     start: int
     end: int
     word: str
     label: str
     score: float
+
 
 class NERResponse(BaseModel):
     provider: Literal["ner"] = "ner"
@@ -28,12 +33,14 @@ class NERResponse(BaseModel):
     entities: List[Entity]
     raw: Any = None  # اختياري: أزلْه لاحقًا لو تريد إخراجًا نظيفًا
 
+
 # ====== Plugin ======
 class Plugin:
     """
     Plugin: NER (Named Entity Recognition)
     - task: extract-entities
     """
+
     name = "ner"
     default_model = "dslim/bert-base-NER"
 
@@ -60,7 +67,7 @@ class Plugin:
             model=self.model,
             tokenizer=self.tokenizer,
             device=device_index,
-            aggregation_strategy="simple"
+            aggregation_strategy="simple",
         )
 
     # تُستدعى من loader عند الإقلاع
@@ -111,7 +118,7 @@ class Plugin:
         except HTTPException:
             raise
         except Exception as e:
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             raise HTTPException(500, f"{type(e).__name__}: {e}")
 
     async def extract_entities(self, req: NERRequest) -> Dict[str, Any]:
@@ -132,7 +139,7 @@ class Plugin:
                 model=temp_mod,
                 tokenizer=temp_tok,
                 device=device_index,
-                aggregation_strategy=req.aggregation
+                aggregation_strategy=req.aggregation,
             )
             out = temp_pipe(req.text)
             used_model = req.model_override
@@ -150,7 +157,7 @@ class Plugin:
                     model=self.model,
                     tokenizer=self.tokenizer,
                     device=device_index,
-                    aggregation_strategy=req.aggregation
+                    aggregation_strategy=req.aggregation,
                 )
                 out = temp_pipe(req.text)
             else:
@@ -161,18 +168,11 @@ class Plugin:
         entities: List[Entity] = []
         for e in out:
             label = e.get("entity_group") or e.get("entity") or "UNK"
-            entities.append(Entity(
-                start=int(e["start"]),
-                end=int(e["end"]),
-                word=e["word"],
-                label=str(label),
-                score=float(e["score"])
-            ))
+            entities.append(
+                Entity(
+                    start=int(e["start"]), end=int(e["end"]), word=e["word"], label=str(label), score=float(e["score"])
+                )
+            )
 
-        resp = NERResponse(
-            device=self.device,
-            model=used_model,
-            entities=entities,
-            raw=out
-        )
+        resp = NERResponse(device=self.device, model=used_model, entities=entities, raw=out)
         return resp.model_dump()

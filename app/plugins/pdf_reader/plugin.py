@@ -1,7 +1,9 @@
-from app.plugins.base import AIPlugin
-import os
 from pathlib import Path
+
 from PyPDF2 import PdfReader
+
+from app.plugins.base import AIPlugin
+
 
 class Plugin(AIPlugin):
     tasks = ["extract-text"]
@@ -36,7 +38,7 @@ class Plugin(AIPlugin):
                 "file_path": file_path,
                 "max_pages": max_pages,
                 "output": text[:1000] + ("..." if len(text) > 1000 else ""),
-                "chars_extracted": len(text)
+                "chars_extracted": len(text),
             }
         except Exception as e:
             return {"task": "extract-text", "error": str(e)}

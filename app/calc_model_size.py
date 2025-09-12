@@ -20,8 +20,8 @@ def model_size(in_features: int, hidden: int, out_features: int, dtype_bytes: in
         "hidden": hidden,
         "out_features": out_features,
         "total_weights": weights,
-        "memory_MB": round(memory_bytes / (1024 ** 2), 2),
-        "memory_GB": round(memory_bytes / (1024 ** 3), 2),
+        "memory_MB": round(memory_bytes / (1024**2), 2),
+        "memory_GB": round(memory_bytes / (1024**3), 2),
     }
 
 

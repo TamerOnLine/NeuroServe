@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Any, Dict
+
 
 class AIPlugin(ABC):
     """واجهة قياسية لأي نموذج."""
 
-    name: str = "unknown"          # اسم المزوّد (يُطابق اسم المجلد عادة)
-    tasks: list[str] = []           # مثل: ["infer", "embed", "classify-image"]
+    name: str = "unknown"  # اسم المزوّد (يُطابق اسم المجلد عادة)
+    tasks: list[str] = []  # مثل: ["infer", "embed", "classify-image"]
 
     @abstractmethod
     def load(self) -> None:

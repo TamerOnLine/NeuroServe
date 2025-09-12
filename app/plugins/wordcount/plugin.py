@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from app.plugins.base import AIPlugin
+
 
 class Plugin(AIPlugin):
     tasks = ["count"]
@@ -14,8 +16,4 @@ class Plugin(AIPlugin):
             return {"task": "count", "error": "text is required"}
 
         words = len(text.split())
-        return {
-            "task": "count",
-            "words": words,
-            "input_chars": len(text)
-        }
+        return {"task": "count", "words": words, "input_chars": len(text)}

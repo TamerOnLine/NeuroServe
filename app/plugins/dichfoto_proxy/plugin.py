@@ -1,5 +1,7 @@
 import requests
+
 from app.plugins.base import AIPlugin
+
 
 class Plugin(AIPlugin):
     tasks = ["forward"]
@@ -25,11 +27,9 @@ class Plugin(AIPlugin):
                 "task": "forward",
                 "endpoint": endpoint,
                 "status_code": resp.status_code,
-                "data": resp.json() if resp.headers.get("content-type","").startswith("application/json") else resp.text
+                "data": resp.json()
+                if resp.headers.get("content-type", "").startswith("application/json")
+                else resp.text,
             }
         except Exception as e:
-            return {
-                "task": "forward",
-                "error": str(e),
-                "endpoint": endpoint
-            }
+            return {"task": "forward", "error": str(e), "endpoint": endpoint}

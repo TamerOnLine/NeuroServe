@@ -1,8 +1,9 @@
 # app/utils/unify.py
-from typing import Any, Dict, Optional
 from copy import deepcopy
+from typing import Any, Dict, Optional
 
 SCHEMA_VERSION = 1
+
 
 def _jsonable(x: Any):
     """حوّل الأنواع الشائعة (numpy/torch) إلى JSON صالح."""
@@ -41,8 +42,10 @@ def _jsonable(x: Any):
     except Exception:
         return None
 
+
 def is_already_unified(raw: Dict[str, Any]) -> bool:
-    return isinstance(raw, dict) and raw.get("schema_version") is not None and raw.get("status") in ("ok","error")
+    return isinstance(raw, dict) and raw.get("schema_version") is not None and raw.get("status") in ("ok", "error")
+
 
 def unify_response(provider: str, task: str, raw: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
     """غلاف موحّد لنتائج المزوّدين مع دعم ميتاداتا وتنظيف JSON."""

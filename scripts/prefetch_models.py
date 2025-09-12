@@ -1,7 +1,7 @@
 import os
 
-from dotenv import load_dotenv
 import torch
+from dotenv import load_dotenv
 
 
 def info(title):
@@ -23,23 +23,19 @@ def prefetch_bart():
     name = "facebook/bart-large-cnn"
     info(f"Prefetch BART: {name}")
     tok = AutoTokenizer.from_pretrained(name)
-    model = BartForConditionalGeneration.from_pretrained(
-        name, low_cpu_mem_usage=True, dtype=torch.float32
-    )
+    model = BartForConditionalGeneration.from_pretrained(name, low_cpu_mem_usage=True, dtype=torch.float32)
     x = tok("hello world", return_tensors="pt", truncation=True, max_length=32)
     _ = model.generate(**x, max_new_tokens=8)
 
 
 def prefetch_distilbert():
     """Prefetch DistilBERT model and tokenizer, then perform a dummy forward pass."""
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     name = "distilbert-base-uncased-finetuned-sst-2-english"
     info(f"Prefetch DistilBERT: {name}")
     tok = AutoTokenizer.from_pretrained(name)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        name, low_cpu_mem_usage=True, dtype=torch.float32
-    )
+    model = AutoModelForSequenceClassification.from_pretrained(name, low_cpu_mem_usage=True, dtype=torch.float32)
     x = tok("a simple test", return_tensors="pt", truncation=True, max_length=32)
     _ = model(**x)
 
@@ -51,9 +47,7 @@ def prefetch_mt5():
     name = "google/mt5-small"
     info(f"Prefetch mT5: {name}")
     tok = AutoTokenizer.from_pretrained(name, use_fast=False)
-    model = MT5ForConditionalGeneration.from_pretrained(
-        name, low_cpu_mem_usage=True, dtype=torch.float32
-    )
+    model = MT5ForConditionalGeneration.from_pretrained(name, low_cpu_mem_usage=True, dtype=torch.float32)
     x = tok(
         "translate arabic to english: مرحبا",
         return_tensors="pt",
@@ -65,29 +59,25 @@ def prefetch_mt5():
 
 def prefetch_tinyllama():
     """Prefetch TinyLlama model and tokenizer, then perform a dummy generation."""
-    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     info(f"Prefetch TinyLlama: {name}")
     tok = AutoTokenizer.from_pretrained(name)
-    model = AutoModelForCausalLM.from_pretrained(
-        name, low_cpu_mem_usage=True, dtype=torch.float32
-    )
+    model = AutoModelForCausalLM.from_pretrained(name, low_cpu_mem_usage=True, dtype=torch.float32)
     x = tok("Hello", return_tensors="pt")
     _ = model.generate(**x, max_new_tokens=4)
 
 
 def prefetch_whisper():
     """Prefetch Whisper processor and model, then perform a dummy generation with silent audio."""
-    from transformers import AutoProcessor, WhisperForConditionalGeneration
     import numpy as np
+    from transformers import AutoProcessor, WhisperForConditionalGeneration
 
     name = "openai/whisper-small"
     info(f"Prefetch Whisper: {name}")
     proc = AutoProcessor.from_pretrained(name)
-    model = WhisperForConditionalGeneration.from_pretrained(
-        name, low_cpu_mem_usage=True, dtype=torch.float32
-    )
+    model = WhisperForConditionalGeneration.from_pretrained(name, low_cpu_mem_usage=True, dtype=torch.float32)
     dummy = np.zeros(16000, dtype="float32")
     x = proc(audio=dummy, sampling_rate=16000, return_tensors="pt")
     _ = model.generate(**x, max_new_tokens=1)
@@ -97,7 +87,7 @@ def prefetch_whisper():
 def prefetch_resnet18():
     """Prefetch torchvision ResNet-18 weights."""
     info("Prefetch torchvision resnet18 weights")
-    from torchvision.models import resnet18, ResNet18_Weights
+    from torchvision.models import ResNet18_Weights, resnet18
 
     _ = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
 

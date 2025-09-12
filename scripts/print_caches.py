@@ -1,7 +1,9 @@
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
+
 
 def get_size(path: Path) -> int:
     """
@@ -19,6 +21,7 @@ def get_size(path: Path) -> int:
         return path.stat().st_size
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
+
 def human_readable(size: int) -> str:
     """
     Convert a size in bytes to a human-readable format.
@@ -34,6 +37,7 @@ def human_readable(size: int) -> str:
             return f"{size:.1f}{unit}"
         size /= 1024
     return f"{size:.1f}PB"
+
 
 def print_cache_info(name: str, path: Path):
     """
@@ -55,6 +59,7 @@ def print_cache_info(name: str, path: Path):
     for p in sorted([p for p in path.iterdir() if p.is_dir()]):
         print(f"  - {p.name}")
 
+
 def main():
     """
     Load environment variables and print cache information for HuggingFace and Torch.
@@ -65,6 +70,7 @@ def main():
 
     print_cache_info("HuggingFace (HF_HOME)", hf_home)
     print_cache_info("Torch (TORCH_HOME)", torch_home)
+
 
 if __name__ == "__main__":
     sys.exit(main())
