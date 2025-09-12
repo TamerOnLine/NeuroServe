@@ -1,3 +1,4 @@
+# app/routes/cuda.py
 import os
 import time
 
@@ -18,7 +19,7 @@ def cuda():
         "available": torch.cuda.is_available(),
         "device_count": torch.cuda.device_count(),
         "current_device": torch.cuda.current_device() if torch.cuda.is_available() else None,
-        "device_name": torch.cuda.get_device_name(torch.cuda.current_device()) if torch.cuda.is_available() else None,
+        "device_name": (torch.cuda.get_device_name(torch.cuda.current_device()) if torch.cuda.is_available() else None),
     }
 
 
@@ -31,6 +32,7 @@ def cuda_info_alias():
 @router.post("/matmul")
 def matmul(n: int = 1024):
     """Matrix multiplication test for performance benchmarking (CUDA or CPU fallback)."""
+    # FORCE_CPU=1 يفيد بالـ CI لإجبار المعالجة على CPU
     force_cpu = os.getenv("FORCE_CPU", "0") == "1"
     use_cuda = torch.cuda.is_available() and not force_cpu
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -42,7 +44,7 @@ def matmul(n: int = 1024):
         torch.cuda.synchronize()
     t0 = time.time()
     with torch.no_grad():
-        torch.matmul(a, b)
+        torch.matmul(a, b)  # لا نخزن الناتج لتجنّب F841
     if use_cuda:
         torch.cuda.synchronize()
     t1 = time.time()
