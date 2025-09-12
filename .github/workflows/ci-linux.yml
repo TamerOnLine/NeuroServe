@@ -56,10 +56,12 @@ jobs:
           pip -V
           uname -a
 
-      - name: Install tools
+      - name: Install dev dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ruff pytest pytest-xdist pytest-cov coverage
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt
+          fi
 
       - name: "Install project deps (auto-detect: pip/uv/poetry)"
         run: |
@@ -78,7 +80,6 @@ jobs:
             pipx install poetry
             poetry install --no-interaction --no-root
             poetry run pip install -e . || true
-            # نعرّف المتغيّر للجُزء التالي من الجوب
             echo "POETRY_RUN=1" >> "$GITHUB_ENV"
 
           else
@@ -101,7 +102,6 @@ jobs:
         env:
           PYTEST_ADDOPTS: "-r fEsxX --maxfail=1 --disable-warnings"
         run: |
-          # استخدم متغيّر الشِل وليس تعبيرات GitHub داخل السكربت
           if [ "${POETRY_RUN:-}" = "1" ]; then
             RUN="poetry run"
           else
