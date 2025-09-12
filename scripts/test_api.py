@@ -1,7 +1,9 @@
 # tests/test_api.py
 import os
+
 import requests
 from fastapi.testclient import TestClient
+
 from app.main import app
 
 BASE_URL = os.getenv("BASE_URL")

@@ -1,0 +1,9 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.8   # Latest stable version of Ruff
+    hooks:
+      - id: ruff
+        args: [--fix]     # Automatically fix issues and organize imports
+        files: \.py$      # Run only on Python files
+      - id: ruff-format   # Format code (Black-compatible)
+        files: \.py$
