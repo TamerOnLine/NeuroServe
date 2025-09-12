@@ -1,39 +1,42 @@
+# tests/test_api.py
+import os
 import requests
+from fastapi.testclient import TestClient
+from app.main import app
 
-BASE = "http://127.0.0.1:8000"
+BASE_URL = os.getenv("BASE_URL")
+_client = None if BASE_URL else TestClient(app)
 
 
-def safe_print_json(label, r):
-    """حاول طباعة JSON، ولو فشل اطبع الرد الخام"""
-    try:
-        data = r.json()
-        print(f"{label}:", data)
-    except Exception:
-        print(f"{label} (non-JSON): status={r.status_code}, body={r.text[:200]}")
+def get_json(path: str, method: str = "get", **kwargs):
+    """Helper to fetch JSON from API (works with BASE_URL or TestClient)."""
+    if BASE_URL:
+        resp = requests.request(method, f"{BASE_URL}{path}", timeout=10, **kwargs)
+    else:
+        resp = _client.request(method, path, **kwargs)
+    assert resp.status_code == 200
+    return resp.json()
 
 
 def test_health():
-    r = requests.get(f"{BASE}/health")
-    safe_print_json("Health", r)
+    body = get_json("/health")
+    assert isinstance(body, dict)
+    assert body.get("ok", True)  # allow {"ok": true}
 
 
 def test_cuda_info():
-    r = requests.get(f"{BASE}/cuda_info")
-    safe_print_json("CUDA info", r)
+    body = get_json("/cuda_info")
+    assert isinstance(body, dict)
+    assert "device_count" in body or "cuda" in body
 
 
 def test_matmul():
-    r = requests.post(f"{BASE}/matmul", json={"n": 2048})
-    safe_print_json("Matmul", r)
+    body = get_json("/matmul", method="post", json={"n": 512})
+    assert isinstance(body, dict)
+    assert "elapsed_ms" in body
 
 
 def test_infer():
-    r = requests.post(f"{BASE}/infer", json={"text": "hello world"})
-    safe_print_json("Infer", r)
-
-
-if __name__ == "__main__":
-    test_health()
-    test_cuda_info()
-    test_matmul()
-    test_infer()
+    body = get_json("/infer", method="post", json={"text": "hello world"})
+    assert isinstance(body, dict)
+    assert "task" in body or "output" in body
